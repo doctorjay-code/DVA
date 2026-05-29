@@ -168,7 +168,7 @@ class LoginModule(BaseModule):
             
             # URL 확인
             current_url = self.web_automation.driver.current_url
-            if "mims-account.mcircle.co.kr/login" in current_url:
+            if "mims-account" in current_url and "/login" in current_url:
                 elapsed_time = time.time() - start_time
                 self.log_success(f"로그인 페이지로 성공적으로 이동했습니다. (소요시간: {elapsed_time:.2f}초)")
                 return True
@@ -267,7 +267,7 @@ class LoginModule(BaseModule):
             # 현재 URL로 로그인 성공 여부 판단
             current_url = self.web_automation.driver.current_url
             
-            if "mims-account.mcircle.co.kr" in current_url:
+            if "mims-account" in current_url:
                 # 아직 로그인 페이지에 있음 = 실패
                 self.log_error("로그인 실패 - 여전히 로그인 페이지에 있습니다.")
                 return False

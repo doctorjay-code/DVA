@@ -5,12 +5,225 @@ import subprocess
 import sys
 from ui.components.tooltip import ToolTip
 
+class KakaoWizardDialog:
+    def __init__(self, parent, get_setting_func, save_callback, start_auth_callback=None):
+        self.parent = parent
+        self.get_setting = get_setting_func
+        self.save_callback = save_callback
+        self.start_auth_callback = start_auth_callback
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title("💬 카카오 알림 연동 도우미")
+        self.window.geometry("560x780")
+        self.window.configure(bg='#ffffff')
+        self.window.resizable(False, False)
+        
+        self.window.transient(parent)
+        self.window.grab_set()
+        self.window.lift()
+        self.window.focus_force()
+        
+        # Center the window
+        self.window.update_idletasks()
+        w = self.window.winfo_width()
+        h = self.window.winfo_height()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (w // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (h // 2)
+        self.window.geometry(f"+{x}+{y}")
+        
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        # 헤더 배너
+        header = tk.Frame(self.window, bg='#fee500', height=85)
+        header.pack(fill='x', side='top')
+        header.pack_propagate(False)
+        
+        tk.Label(
+            header, text="💬 카카오 알림 초간편 3분 연동 도우미",
+            font=("맑은 고딕", 15, "bold"), bg='#fee500', fg='#3c1e1e'
+        ).pack(pady=(15, 2))
+        
+        tk.Label(
+            header, text="처음 설정하시는 분들도 아래 안내에 따라 차근차근 클릭하시면 3분 만에 끝납니다!",
+            font=("맑은 고딕", 9), bg='#fee500', fg='#3c1e1e'
+        ).pack()
+        
+        # 스크롤 가능한 본문 프레임
+        main_container = tk.Frame(self.window, bg='#ffffff')
+        main_container.pack(fill='both', expand=True, padx=25, pady=15)
+        
+        canvas = tk.Canvas(main_container, bg='#ffffff', highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
+        
+        self.scroll_frame = tk.Frame(canvas, bg='#ffffff')
+        self.scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas_frame = canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
+        
+        def _configure_canvas(event):
+            canvas.itemconfig(canvas_frame, width=event.width)
+        canvas.bind("<Configure>", _configure_canvas)
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 마우스 휠 지원
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self.canvas = canvas
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # --- 단계별 카드식 UI ---
+        
+        # 1단계
+        self._add_step_card(
+            self.scroll_frame, "1단계: 카카오 개발자 콘솔 접속 & 로그인",
+            "아래 버튼을 클릭해 카카오 개발자 사이트로 이동하신 후,\n평소 쓰시는 카카오 계정으로 로그인해 주세요.",
+            btn_text="🌐 카카오 개발자 콘솔 바로가기",
+            btn_cmd=lambda: self._open_url("https://developers.kakao.com/console/app")
+        )
+        
+        # 2단계
+        self._add_step_card(
+            self.scroll_frame, "2단계: 애플리케이션 생성 (앱 추가)",
+            "화면 우측 상단의 [➕ 앱 생성] 버튼을 클릭하신 후,\n다음 정보를 입력하고 [저장]을 눌러 앱을 만드세요.\n\n"
+            "• 앱 이름: DVA 입력\n"
+            "• 회사명: 개인 입력\n"
+            "• 카테고리: 아무 카테고리나 선택 (예: IT/기술)\n"
+            "• 약관 동의 체크박스 필수 체크!"
+        )
+        
+        # 3단계
+        self._add_step_card(
+            self.scroll_frame, "3단계: 플랫폼 키에서 REST API 키 복사",
+            "방금 만들어진 DVA 앱을 클릭해 들어가신 뒤,\n"
+            "왼쪽 메뉴에서 [앱 설정] ➡️ [플랫폼 키]로 이동합니다.\n\n"
+            "• 화면 첫 번째에 표시된 'REST API 키'의 복사(📋) 버튼을 클릭해 복사합니다."
+        )
+        
+        # 4단계
+        self._add_step_card(
+            self.scroll_frame, "4단계: 카카오 로그인 활성화 및 주소 등록",
+            "프로그램 연동을 위한 필수 보안 설정을 진행합니다.\n\n"
+            "① 왼쪽 메뉴에서 [카카오 로그인] 클릭 ➡️ 활성화 상태를 [ON]으로 변경\n"
+            "② 그 바로 아래 [Redirect URI 등록] 클릭 ➡️ http://localhost 입력 후 저장"
+        )
+        
+        # 5단계
+        self._add_step_card(
+            self.scroll_frame, "5단계: 카카오톡 메시지 전송 권한 승인",
+            "프로그램이 카톡을 보낼 수 있도록 동의해 주는 마지막 설정입니다.\n\n"
+            "① 왼쪽 메뉴에서 [카카오 로그인] ➡️ [동의항목] 클릭\n"
+            "② 맨 아래 [카카오톡 메시지 전송] 항목의 [설정] 클릭\n"
+            "③ [이용자 동의] 체크박스 체크 후 저장 클릭"
+        )
+        
+        # --- 입력 및 완료 영역 ---
+        input_frame = tk.LabelFrame(
+            self.scroll_frame, text="🔑 3단계에서 복사한 REST API 키를 등록하세요",
+            font=("맑은 고딕", 11, "bold"), bg='#ffffff', fg='#2c3e50', padx=15, pady=15, relief='solid', borderwidth=1
+        )
+        input_frame.pack(fill='x', pady=(15, 10))
+        
+        self.key_entry = tk.Entry(
+            input_frame, font=("Consolas", 12), justify='center',
+            relief='solid', borderwidth=1, bg='#f8f9fa'
+        )
+        self.key_entry.pack(fill='x', ipady=6, pady=(0, 15))
+        
+        # 기존 키가 있다면 채워두기
+        existing_key = self.get_setting('kakao_rest_api_key')
+        if existing_key:
+            self.key_entry.insert(0, existing_key)
+            
+        start_btn = tk.Button(
+            input_frame, text="🚀 설정 완료 및 자동 로그인 연동 시작",
+            font=("맑은 고딕", 12, "bold"), bg='#fee500', fg='#3c1e1e',
+            activebackground='#edd000', activeforeground='#3c1e1e',
+            relief='flat', cursor='hand2', padx=10, pady=10,
+            command=self._on_confirm
+        )
+        start_btn.pack(fill='x')
+        
+    def _add_step_card(self, parent, title, desc, btn_text=None, btn_cmd=None):
+        card = tk.Frame(parent, bg='#f8f9fa', padx=15, pady=12, relief='solid', borderwidth=1)
+        card.pack(fill='x', pady=(0, 12))
+        
+        tk.Label(
+            card, text=title, font=("맑은 고딕", 10, "bold"),
+            bg='#f8f9fa', fg='#2c3e50', anchor='w'
+        ).pack(fill='x', pady=(0, 5))
+        
+        tk.Label(
+            card, text=desc, font=("맑은 고딕", 9),
+            bg='#f8f9fa', fg='#555555', justify='left', anchor='w'
+        ).pack(fill='x', pady=(0, 5))
+        
+        if btn_text and btn_cmd:
+            btn = tk.Button(
+                card, text=btn_text, font=("맑은 고딕", 9, "bold"),
+                bg='#3498db', fg='white', relief='flat', cursor='hand2',
+                padx=10, pady=4, command=btn_cmd
+            )
+            btn.pack(anchor='w', pady=(3, 0))
+            
+    def _open_url(self, url):
+        import webbrowser
+        webbrowser.open(url)
+        
+    def _on_confirm(self):
+        key = self.key_entry.get().strip()
+        if not key:
+            messagebox.showwarning("입력 필요", "REST API 키를 입력해 주세요.", parent=self.window)
+            return
+            
+        # 32자리 검사 등 간단 포맷 체크
+        if len(key) != 32:
+            if not messagebox.askyesno("확인", "일반적인 카카오 REST API 키는 32자리 글자입니다. 입력한 키가 정확한가요?", parent=self.window):
+                return
+                
+        # settings.json에 저장
+        settings_path = "data/settings.json"
+        import os, json
+        settings = {}
+        if os.path.exists(settings_path):
+            try:
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            except:
+                pass
+                
+        settings['kakao_rest_api_key'] = key
+        
+        os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+            
+        # 설정 변수 동기화
+        self.save_callback(settings)
+        
+        self.window.destroy()
+        self.canvas.unbind_all("<MouseWheel>")
+        
+        # 재인증 플로우 시작
+        if self.start_auth_callback:
+            # Toplevel의 destroy 딜레이를 고려하여 살짝 뒤에 실행
+            self.parent.after(100, lambda: self.start_auth_callback(self.parent))
+
+
 class SettingsDialog:
-    def __init__(self, parent, get_setting_func, save_callback, close_callback):
+    def __init__(self, parent, get_setting_func, save_callback, close_callback, open_browser_func=None):
         self.parent = parent
         self.get_setting = get_setting_func
         self.save_callback = save_callback
         self.close_callback = close_callback
+        self.open_browser_func = open_browser_func
         
         self.setting_vars = {}
         self._seminar_sub_widgets = []
@@ -416,20 +629,8 @@ class SettingsDialog:
         _on_kakao_toggle()
 
     def _show_kakao_help(self):
-        """카카오톡 알림 설정 도움말 표시"""
-        help_text = (
-            "🚀 카카오톡 알림 설정 방법 (최초 1회)\n\n"
-            "1. REST API 키 준비\n"
-            "   - '카카오 개발자 센터'에서 앱 생성 후 REST API 키를 복사하세요.\n\n"
-            "2. 인증 과정 (창 하단 [재인증] 버튼 클릭)\n"
-            "   - '재인증' 버튼을 누르면 브라우저 창이 열립니다.\n"
-            "   - 카카오톡 로그인을 진행하고 '나에게 메시지 보내기'에 동의합니다.\n\n"
-            "3. 코드 복사 및 입력\n"
-            "   - 동의 후 이동된 주소창에서 [code=...] 뒤의 문구를 복사합니다.\n"
-            "   - 프로그램과 함께 열린 검은색 창(콘솔)에 붙여넣고 엔터를 누릅니다.\n\n"
-            "💡 한 번만 인증하면 이후에는 자동으로 갱신됩니다!"
-        )
-        messagebox.showinfo("❓ 카카오톡 알림 도움말", help_text)
+        """카카오톡 알림 설정 도움말 표시 (대화형 비주얼 위저드 창)"""
+        KakaoWizardDialog(self.settings_window, self.get_setting, self.save_callback, self.open_browser_func)
 
     def _on_save(self):
         new_settings = {}
@@ -466,10 +667,116 @@ class SettingsDialog:
         self.close_callback(dimensions)
 
     def _on_kakao_auth(self):
-        """카카오 인증 스크립트 실행"""
+        """GUI 기반 카카오톡 인증 프로세스 진행"""
+        if self.open_browser_func:
+            self.open_browser_func(self)
+            return
+            
+        import webbrowser
+        import requests
+        import json
+        import os
+        from tkinter import simpledialog
+        
         try:
-            # 윈도우에서 새로운 콘솔 창으로 실행
-            subprocess.Popen([sys.executable, "scripts/kakao_auth.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
-            messagebox.showinfo("알림", "카카오 인증을 위한 새 창이 열렸습니다.\n해당 창의 안내에 따라 인증을 진행해 주세요.")
+            # 1. settings.json 로드
+            settings_path = "data/settings.json"
+            settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            
+            # 2. REST API Key 확인
+            rest_api_key = settings.get('kakao_rest_api_key')
+            if not rest_api_key:
+                rest_api_key = simpledialog.askstring(
+                    "🔑 REST API 키 입력", 
+                    "카카오 개발자 센터에서 발급받은 'REST API 키'를 입력해주세요:",
+                    parent=self.settings_window
+                )
+                if not rest_api_key:
+                    return
+                rest_api_key = rest_api_key.strip()
+                settings['kakao_rest_api_key'] = rest_api_key
+            
+            # 3. Redirect URI
+            redirect_uri = settings.get('kakao_redirect_uri', "http://localhost")
+            settings['kakao_redirect_uri'] = redirect_uri
+            
+            # 4. 인증 URL 생성 및 브라우저 열기
+            auth_url = (
+                f"https://kauth.kakao.com/oauth/authorize?"
+                f"client_id={rest_api_key}&"
+                f"redirect_uri={redirect_uri}&"
+                f"response_type=code&"
+                f"scope=talk_message"
+            )
+            
+            if self.open_browser_func:
+                self.open_browser_func(auth_url)
+            else:
+                webbrowser.open(auth_url)
+            
+            # 5. 인가 코드 입력 받기 (GUI 팝업창)
+            auth_code = simpledialog.askstring(
+                "💬 카카오 인증 코드 입력",
+                "1. 열린 웹 브라우저에서 카카오 로그인을 진행하세요.\n"
+                "2. '사이트에 연결할 수 없음' 화면이 뜨면 정상입니다.\n"
+                "3. 상단 주소창의 'code=' 뒤에 있는 문자열 전체를 복사하여 아래에 입력하세요:",
+                parent=self.settings_window
+            )
+            
+            if not auth_code:
+                messagebox.showwarning("취소", "인증 코드가 입력되지 않아 인증이 취소되었습니다.", parent=self.settings_window)
+                return
+            
+            auth_code = auth_code.strip()
+            
+            # 주소 전체를 붙여넣었을 경우 대비해서 code= 파싱 처리 (사용자 실수 방지)
+            if "code=" in auth_code:
+                try:
+                    auth_code = auth_code.split("code=")[1].split("&")[0]
+                except:
+                    pass
+            
+            # 6. 토큰 발급 요청
+            token_url = "https://kauth.kakao.com/oauth/token"
+            data = {
+                "grant_type": "authorization_code",
+                "client_id": rest_api_key,
+                "redirect_uri": redirect_uri,
+                "code": auth_code
+            }
+            
+            response = requests.post(token_url, data=data)
+            result = response.json()
+            
+            if response.status_code == 200:
+                # 7. 토큰 저장 및 활성화
+                settings['kakao_access_token'] = result.get('access_token')
+                settings['kakao_refresh_token'] = result.get('refresh_token')
+                settings['kakao_notify_enabled'] = True
+                
+                # 설정 파일 저장
+                os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+                with open(settings_path, 'w', encoding='utf-8') as f:
+                    json.dump(settings, f, indent=2, ensure_ascii=False)
+                
+                # GUI 변수 동기화
+                if 'kakao_notify_enabled' in self.setting_vars:
+                    self.setting_vars['kakao_notify_enabled'].set(True)
+                    # 하위 위젯 활성화 트리거
+                    for w in self._notify_sub_widgets:
+                        try: w.configure(state='normal')
+                        except: pass
+                
+                # 저장 완료 알림 콜백 호출로 설정 메모리 갱신
+                self.save_callback(settings)
+                
+                messagebox.showinfo("✅ 인증 성공", "카카오톡 알림 인증이 성공적으로 완료되었습니다!\n이제 프로그램 알림이 카카오톡으로 전송됩니다.", parent=self.settings_window)
+            else:
+                err_desc = result.get('error_description', result.get('error', '알 수 없는 오류'))
+                messagebox.showerror("❌ 인증 실패", f"토큰 발급에 실패했습니다:\n{err_desc}", parent=self.settings_window)
+                
         except Exception as e:
-            messagebox.showerror("오류", f"인증 스크립트 실행 실패: {str(e)}")
+            messagebox.showerror("❌ 에러 발생", f"인증 진행 중 예외 발생: {str(e)}", parent=self.settings_window)

@@ -250,6 +250,240 @@ class DoctorBillApp:
         self.task_manager._handle_seminar_single_action(detail_link, status_tag, self.get_callbacks(), title=title)
         self.ui.seminar_panel.seminar_tree.selection_remove(item)
 
+    def start_kakao_auth_flow(self, settings_dialog):
+        """카카오톡 자동 감지 인증 흐름을 실행합니다."""
+        import threading
+        import time
+        import requests
+        import os
+        import json
+        import tkinter as tk
+        from tkinter import messagebox, simpledialog
+
+        # 1. settings.json 로드
+        settings_path = "data/settings.json"
+        settings = self.load_settings()
+
+        # 2. REST API Key 확인
+        rest_api_key = settings.get('kakao_rest_api_key')
+        if not rest_api_key:
+            # 도움말 및 가이드 대화 상자를 직접 띄웁니다!
+            from ui.dialogs.settings_dialog import KakaoWizardDialog
+            KakaoWizardDialog(settings_dialog.settings_window, self.get_setting, self.save_settings, self.start_kakao_auth_flow)
+            return
+
+        # 3. Redirect URI
+        redirect_uri = settings.get('kakao_redirect_uri', "http://localhost")
+
+        # 4. 인증 URL 생성
+        auth_url = (
+            f"https://kauth.kakao.com/oauth/authorize?"
+            f"client_id={rest_api_key}&"
+            f"redirect_uri={redirect_uri}&"
+            f"response_type=code&"
+            f"scope=talk_message"
+        )
+
+        # 5. 자동화 크롬이 실행 중인지 확인
+        state = self.task_manager.state
+        driver = None
+        if state and state.web_automation and state.web_automation.driver:
+            driver = state.web_automation.driver
+
+        if not driver:
+            # 자동화 크롬이 없는 경우, 기존처럼 팝업 입력식으로 진행 (백업 장치)
+            import webbrowser
+            webbrowser.open(auth_url)
+            
+            auth_code = simpledialog.askstring(
+                "💬 카카오 인증 코드 입력",
+                "카카오 자동화 크롬이 실행 중이 아닙니다.\n"
+                "1. 열린 일반 웹 브라우저에서 로그인을 완료하세요.\n"
+                "2. 주소창 전체 또는 'code=' 뒤의 코드를 복사하여 아래에 입력하세요:",
+                parent=settings_dialog.settings_window
+            )
+            if not auth_code:
+                return
+            
+            auth_code = auth_code.strip()
+            if "code=" in auth_code:
+                try: auth_code = auth_code.split("code=")[1].split("&")[0]
+                except: pass
+                
+            self._exchange_and_save_kakao_token(auth_code, rest_api_key, redirect_uri, settings_dialog)
+            return
+
+        # 6. 자동화 크롬이 실행 중인 경우 -> 초간편 자동 감지 모드 실행!
+        try:
+            # 메인 탭 핸들 기억
+            main_tab_handle = driver.current_window_handle
+            
+            # 새 탭 열기
+            driver.execute_script("window.open(arguments[0], '_blank');", auth_url)
+            auth_tab_handle = driver.window_handles[-1]
+            driver.switch_to.window(auth_tab_handle)
+            
+            # 비차단형 안내 메세지 창 띄우기
+            status_window = tk.Toplevel(settings_dialog.settings_window)
+            status_window.title("💬 카카오 인증 진행 중")
+            status_window.geometry("450x180")
+            status_window.resizable(False, False)
+            status_window.configure(bg='#ffffff')
+            status_window.transient(settings_dialog.settings_window)
+            status_window.grab_set()
+            
+            # 윈도우 센터링
+            status_window.update_idletasks()
+            w = status_window.winfo_width()
+            h = status_window.winfo_height()
+            x = settings_dialog.settings_window.winfo_x() + (settings_dialog.settings_window.winfo_width() // 2) - (w // 2)
+            y = settings_dialog.settings_window.winfo_y() + (settings_dialog.settings_window.winfo_height() // 2) - (h // 2)
+            status_window.geometry(f"+{x}+{y}")
+            
+            tk.Label(
+                status_window, text="💬 카카오 로그인 자동 감지 중...",
+                font=("맑은 고딕", 14, "bold"), bg='#ffffff', fg='#2c3e50'
+            ).pack(pady=(20, 10))
+            
+            tk.Label(
+                status_window, text="새로 열린 크롬 탭에서 로그인을 완료해 주세요.\n로그인이 완료되면 탭이 자동으로 닫히고 인증이 등록됩니다.",
+                font=("맑은 고딕", 10), bg='#ffffff', fg='#7f8c8d', justify='center'
+            ).pack(pady=5)
+            
+            # 모니터링 정지 플래그
+            is_cancelled = [False]
+            
+            def on_cancel():
+                is_cancelled[0] = True
+                status_window.destroy()
+                # 탭 닫기 시도
+                try:
+                    if auth_tab_handle in driver.window_handles:
+                        driver.switch_to.window(auth_tab_handle)
+                        driver.close()
+                except:
+                    pass
+                try:
+                    driver.switch_to.window(main_tab_handle)
+                except:
+                    pass
+                messagebox.showwarning("취소", "카카오톡 인증이 취소되었습니다.", parent=settings_dialog.settings_window)
+                
+            cancel_btn = tk.Button(
+                status_window, text="취소", font=("맑은 고딕", 10, "bold"),
+                bg='#e74c3c', fg='white', relief='flat', padx=15, pady=5,
+                command=on_cancel, cursor='hand2'
+            )
+            cancel_btn.pack(pady=10)
+            
+            status_window.protocol("WM_DELETE_WINDOW", on_cancel)
+
+            # 백그라운드에서 URL 감시 스레드 가동
+            def monitor_url_loop():
+                auth_code = None
+                try:
+                    # 10분간 감시 (1200회 * 0.5초)
+                    for _ in range(1200):
+                        if is_cancelled[0]:
+                            return
+                            
+                        # 브라우저 상태 체크
+                        if auth_tab_handle not in driver.window_handles:
+                            # 사용자가 탭을 수동으로 닫았음
+                            self.root.after(0, lambda: self._on_auth_failed("사용자가 로그인 탭을 수동으로 닫았습니다.", status_window, settings_dialog))
+                            return
+                            
+                        # 현재 URL 체크 (포커스 변경 없이 감지)
+                        current_url = driver.current_url
+                        
+                        if "code=" in current_url and "kauth.kakao.com" not in current_url:
+                            # 코드 감지 성공!
+                            try:
+                                auth_code = current_url.split("code=")[1].split("&")[0]
+                            except Exception as parse_err:
+                                self.root.after(0, lambda: self._on_auth_failed(f"인증 코드 파싱 실패: {parse_err}", status_window, settings_dialog))
+                                return
+                            break
+                            
+                        time.sleep(0.5)
+                        
+                    if not auth_code:
+                        self.root.after(0, lambda: self._on_auth_failed("인증 대기 시간이 초과되었습니다.", status_window, settings_dialog))
+                        return
+                        
+                    # 성공 처리
+                    self.root.after(0, lambda: self._on_auth_success(auth_code, rest_api_key, redirect_uri, auth_tab_handle, main_tab_handle, status_window, settings_dialog))
+                    
+                except Exception as monitor_err:
+                    self.root.after(0, lambda: self._on_auth_failed(f"모니터링 중 에러 발생: {monitor_err}", status_window, settings_dialog))
+            
+            threading.Thread(target=monitor_url_loop, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("❌ 에러 발생", f"자동 감지 시스템 작동 실패: {str(e)}", parent=settings_dialog.settings_window)
+
+    def _exchange_and_save_kakao_token(self, auth_code, rest_api_key, redirect_uri, settings_dialog):
+        """수동 입력받은 코드로 토큰 교환 및 저장"""
+        import requests
+        from tkinter import messagebox
+        token_url = "https://kauth.kakao.com/oauth/token"
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": rest_api_key,
+            "redirect_uri": redirect_uri,
+            "code": auth_code
+        }
+        try:
+            response = requests.post(token_url, data=data)
+            result = response.json()
+            if response.status_code == 200:
+                settings = self.load_settings()
+                settings['kakao_access_token'] = result.get('access_token')
+                settings['kakao_refresh_token'] = result.get('refresh_token')
+                settings['kakao_notify_enabled'] = True
+                self.save_settings(settings)
+                
+                # GUI 동기화
+                settings_dialog.setting_vars['kakao_notify_enabled'].set(True)
+                for w in settings_dialog._notify_sub_widgets:
+                    try: w.configure(state='normal')
+                    except: pass
+                
+                messagebox.showinfo("✅ 인증 성공", "카카오톡 알림 인증이 성공적으로 완료되었습니다!", parent=settings_dialog.settings_window)
+            else:
+                err_desc = result.get('error_description', result.get('error', '알 수 없는 오류'))
+                messagebox.showerror("❌ 인증 실패", f"토큰 발급에 실패했습니다:\n{err_desc}", parent=settings_dialog.settings_window)
+        except Exception as e:
+            messagebox.showerror("❌ 에러 발생", f"토큰 교환 중 에러 발생: {e}", parent=settings_dialog.settings_window)
+
+    def _on_auth_success(self, auth_code, rest_api_key, redirect_uri, auth_tab_handle, main_tab_handle, status_window, settings_dialog):
+        """자동 감지 성공 시 처리"""
+        # 1. 탭 닫기 및 메인 탭 복귀
+        try:
+            state = self.task_manager.state
+            if state and state.web_automation and state.web_automation.driver:
+                driver = state.web_automation.driver
+                if auth_tab_handle in driver.window_handles:
+                    driver.switch_to.window(auth_tab_handle)
+                    driver.close()
+                driver.switch_to.window(main_tab_handle)
+        except:
+            pass
+            
+        # 2. 상태 창 닫기
+        try: status_window.destroy()
+        except: pass
+        
+        # 3. 토큰 교환 및 저장
+        self._exchange_and_save_kakao_token(auth_code, rest_api_key, redirect_uri, settings_dialog)
+
+    def _on_auth_failed(self, reason, status_window, settings_dialog):
+        """자동 감지 실패 시 처리"""
+        from tkinter import messagebox
+        try: status_window.destroy()
+        except: pass
+        messagebox.showerror("❌ 인증 실패", f"카카오 자동 인증에 실패했습니다:\n{reason}", parent=settings_dialog.settings_window)
+
     def open_settings(self):
         # 설정 창을 열기 직전 파일에서 최신 정보를 다시 불러와 동기화합니다.
         self.settings = self.load_settings()
@@ -270,7 +504,7 @@ class DoctorBillApp:
                 self.set_setting('settings_window_width', dims.get('width', 520))
                 self.set_setting('settings_window_height', dims.get('height', 850))
 
-        SettingsDialog(self.root, self.get_setting, on_save, on_close)
+        SettingsDialog(self.root, self.get_setting, on_save, on_close, self.start_kakao_auth_flow)
 
     # ================= Tray Icon & Window Control =================
     def setup_tray_icon(self):
