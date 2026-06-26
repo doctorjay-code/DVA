@@ -342,6 +342,19 @@ class DoctorBillUpdater:
         except Exception as e:
             self.print_status(f"버전 정보 저장 중 실패 (무시): {e}")
 
+    def remove_deprecated_files(self):
+        """더 이상 사용되지 않는 파일들 제거 (예: 업데이트.bat)"""
+        self.print_status("사용되지 않는 옛날 파일 정리 중...")
+        deprecated_files = ['업데이트.bat']
+        for file_name in deprecated_files:
+            file_path = self.current_dir / file_name
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                    self.print_status(f"제거 완료: {file_name}")
+                except Exception as e:
+                    self.print_status(f"제거 실패 (무시): {file_name} - {e}")
+
     def cleanup(self):
         """임시 파일들 정리"""
         self.safe_remove_tree(self.backup_dir)
@@ -368,6 +381,9 @@ class DoctorBillUpdater:
                 
                 # 로컬 버전 정보 최신화
                 self.save_version_info()
+                
+                # 사용되지 않는 옛날 파일 정리
+                self.remove_deprecated_files()
                 
                 self.print_status("업데이트가 성공적으로 완료되었습니다!")
                 self.print_status("백업 파일은 5초 후 자동으로 삭제됩니다...")

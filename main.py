@@ -21,6 +21,8 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
+VERSION = "v3.5.4"
+
 class DoctorBillApp:
     def __init__(self, root):
         self.root = root
@@ -797,12 +799,12 @@ class DoctorBillApp:
                 os.makedirs(os.path.dirname(version_file), exist_ok=True)
                 with open(version_file, "w", encoding="utf-8") as f:
                     json.dump({"latest_commit_sha": remote_sha}, f, indent=4)
-                self.root.after(0, lambda: self.log_message("[시스템] 초기 버전 정보 등록 완료: 최신 버전을 사용 중입니다."))
+                self.root.after(0, lambda: self.log_message(f"[시스템] 초기 버전 정보 등록 완료: 최신 버전({VERSION})을 사용 중입니다."))
             except Exception:
                 pass
         elif local_sha == remote_sha:
             # 최신 버전
-            self.root.after(0, lambda: self.log_message("[시스템] 업데이트 확인 완료: 최신 버전을 사용 중입니다."))
+            self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 완료: 최신 버전({VERSION})을 사용 중입니다."))
         else:
             # 업데이트 필요
             self.root.after(0, lambda: self.prompt_update_execution(remote_sha))
@@ -876,10 +878,10 @@ class DoctorBillApp:
 def main():
     root = tk.Tk()
     
-    # 창 제목에 계정 이름 표시
+    # 창 제목에 버전 및 계정 이름 표시
     account_name = os.environ.get('ACCOUNT_NAME', '')
     title_suffix = f" [{account_name}]" if account_name else ""
-    root.title(f"닥터빌 자동화 프로그램{title_suffix}")
+    root.title(f"닥터빌 자동화 프로그램 {VERSION}{title_suffix}")
     
     app = DoctorBillApp(root)
     root.mainloop()
