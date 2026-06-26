@@ -96,6 +96,7 @@ class DoctorBillApp:
         self.setup_tray_icon()
         
         self.root.after(200, self.auto_login)
+        self.root.after(500, self.start_update_check)
         self.root.after(1000, self.check_scheduled_tasks)
 
         self.ui.work_log.log_message("프로그램이 시작되었습니다.")
@@ -750,6 +751,91 @@ class DoctorBillApp:
                 (s.get('date',''), s.get('day',''), s.get('time',''), s.get('title',''), s.get('lecturer',''), s.get('person',''), s.get('status','')),
                 tags=(s.get('detail_link',''), status_tag)
             )
+
+    def start_update_check(self):
+        """백그라운드 스레드에서 업데이트 검사 시작"""
+        threading.Thread(target=self.check_for_updates, daemon=True).start()
+
+    def check_for_updates(self):
+        """업데이트 확인 로직 (백그라운드 스레드)"""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        version_file = os.path.join(base_dir, "data", "version.json")
+        github_repo_url = "https://api.github.com/repos/doctorjay-code/DVA"
+        
+        # 1. GitHub API로 최신 커밋 SHA 가져오기
+        remote_sha = None
+        try:
+            import requests
+            headers = {"User-Agent": "DVA-Updater"}
+            # API 제한 및 타임아웃 고려하여 3초 설정
+            response = requests.get(f"{github_repo_url}/commits/main", headers=headers, timeout=3)
+            if response.status_code == 200:
+                remote_sha = response.json().get("sha")
+        except Exception as e:
+            # 네트워크 오류, 타임아웃 등
+            self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 실패 (오프라인 모드 / {str(e)})"))
+            return
+
+        if not remote_sha:
+            self.root.after(0, lambda: self.log_message("[시스템] 업데이트 확인 실패 (원격 정보를 받아올 수 없습니다.)"))
+            return
+
+        # 2. 로컬 SHA 가져오기
+        local_sha = None
+        if os.path.exists(version_file):
+            try:
+                with open(version_file, "r", encoding="utf-8") as f:
+                    local_data = json.load(f)
+                    local_sha = local_data.get("latest_commit_sha")
+            except Exception:
+                pass
+
+        # 3. 버전 비교 및 후속 조치
+        if not local_sha:
+            # 로컬 파일이 없으면 최초 실행으로 가정, 현재 원격 SHA를 파일에 저장하여 최신 상태로 등록
+            try:
+                os.makedirs(os.path.dirname(version_file), exist_ok=True)
+                with open(version_file, "w", encoding="utf-8") as f:
+                    json.dump({"latest_commit_sha": remote_sha}, f, indent=4)
+                self.root.after(0, lambda: self.log_message("[시스템] 초기 버전 정보 등록 완료: 최신 버전을 사용 중입니다."))
+            except Exception:
+                pass
+        elif local_sha == remote_sha:
+            # 최신 버전
+            self.root.after(0, lambda: self.log_message("[시스템] 업데이트 확인 완료: 최신 버전을 사용 중입니다."))
+        else:
+            # 업데이트 필요
+            self.root.after(0, lambda: self.prompt_update_execution(remote_sha))
+
+    def prompt_update_execution(self, remote_sha):
+        """메인 스레드에서 사용자에게 업데이트 의사를 물어보고 실행"""
+        from tkinter import messagebox
+        import subprocess
+        import sys
+        
+        answer = messagebox.askyesno(
+            "새로운 업데이트 발견",
+            "새로운 업데이트 버전이 존재합니다.\n지금 프로그램을 종료하고 업데이트를 진행하시겠습니까?"
+        )
+        if answer:
+            self.log_message("[시스템] 프로그램을 종료하고 업데이트를 시작합니다...")
+            try:
+                # scripts/update_program.py --auto 실행
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                script_path = os.path.join(base_dir, "scripts", "update_program.py")
+                
+                # detached process로 실행하여 부모 프로세스 종료 시에도 독립적으로 살아있게 함
+                subprocess.Popen(
+                    [sys.executable, script_path, "--auto"],
+                    creationflags=subprocess.DETACHED_PROCESS if os.name == 'nt' else 0,
+                    close_fds=True
+                )
+                # 현재 메인 윈도우 안전하게 종료
+                self.on_closing()
+            except Exception as e:
+                messagebox.showerror("오류", f"업데이트 스크립트 실행 실패: {e}")
+        else:
+            self.log_message("[시스템] 업데이트가 취소되었습니다. 현재 버전으로 계속 실행합니다.")
 
     # ================= Utils =================
     def setup_logging(self):

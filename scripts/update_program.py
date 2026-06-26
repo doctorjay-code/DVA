@@ -66,12 +66,12 @@ class UpdateGUI:
         else:
             messagebox.showerror("실패", "업데이트에 실패했습니다.")
     
-    def run(self):
+    def run(self, auto_mode=False):
         """GUI 실행"""
         self.root.withdraw()  # 메인 창 숨기기
         
-        # 업데이트 확인
-        if self.show_update_dialog():
+        # 업데이트 확인 (auto_mode일 경우 동의 대화상자 건너뜀)
+        if auto_mode or self.show_update_dialog():
             # 진행 중 창 표시
             self.show_progress()
             
@@ -323,6 +323,25 @@ class DoctorBillUpdater:
         except Exception as e:
             self.print_status(f"패키지 설치 중 오류 (수동 설치 필요): {e}")
 
+    def save_version_info(self):
+        """최신 커밋 SHA 값을 조회하여 data/version.json에 저장"""
+        self.print_status("로컬 버전 정보 갱신 중...")
+        try:
+            url = f"{self.github_repo}/commits/main"
+            headers = {"User-Agent": "DVA-Updater"}
+            response = requests.get(url, headers=headers, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            sha = data.get("sha")
+            if sha:
+                version_file = self.current_dir / "data" / "version.json"
+                version_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(version_file, "w", encoding="utf-8") as f:
+                    json.dump({"latest_commit_sha": sha}, f, indent=4)
+                self.print_status(f"버전 정보 갱신 완료: {sha}")
+        except Exception as e:
+            self.print_status(f"버전 정보 저장 중 실패 (무시): {e}")
+
     def cleanup(self):
         """임시 파일들 정리"""
         self.safe_remove_tree(self.backup_dir)
@@ -347,6 +366,9 @@ class DoctorBillUpdater:
                 # 4. 의존성 패키지 업데이트
                 self.run_pip_install()
                 
+                # 로컬 버전 정보 최신화
+                self.save_version_info()
+                
                 self.print_status("업데이트가 성공적으로 완료되었습니다!")
                 self.print_status("백업 파일은 5초 후 자동으로 삭제됩니다...")
                 
@@ -370,9 +392,12 @@ class DoctorBillUpdater:
 def main():
     """메인 함수"""
     try:
+        # CLI 인자 검사
+        auto_mode = "--auto" in sys.argv
+        
         # GUI 업데이트 도구 실행
         gui = UpdateGUI()
-        gui.run()
+        gui.run(auto_mode=auto_mode)
     except Exception as e:
         # 오류 발생 시 메시지 박스로 표시
         import tkinter as tk
