@@ -22,12 +22,12 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
     
     # 윈도우 설정
     window = tk.Toplevel(parent)
-    window.title("📅 닥터빌 라이브세미나 정보")
+    window.title("📅 닥터빌 세미나 목록 정보")
     window.geometry("1200x800")
     window.configure(bg='#f0f0f0')
     
     # 제목
-    title_label = tk.Label(window, text="📅 닥터빌 라이브세미나 정보", 
+    title_label = tk.Label(window, text="📅 닥터빌 세미나 목록 정보", 
                           font=("맑은 고딕", 16, "bold"), 
                           bg='#f0f0f0', fg='#2c3e50')
     title_label.pack(pady=10)

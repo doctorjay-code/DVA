@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-새로운 퀴즈풀기 모듈
-닥터빌 퀴즈풀기 기능을 담당합니다.
+새로운 퀴즈 풀이 모듈
+닥터빌 퀴즈 풀이 기능을 담당합니다.
 """
 
 from selenium.webdriver.common.by import By

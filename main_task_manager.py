@@ -315,10 +315,10 @@ class TaskManager:
         # 간단한 디스플레이 이름 매핑
         display_names = {
             'login': '로그인',
-            'attendance': '출석체크', 
-            'quiz': '퀴즈풀기',
-            'survey': '설문참여',
-            'seminar': '라이브세미나',
+            'attendance': '출석 체크', 
+            'quiz': '퀴즈 풀이',
+            'survey': '세미나 풀이',
+            'seminar': '세미나 목록',
             'points': '포인트'
         }
         
@@ -391,16 +391,16 @@ class TaskManager:
                     is_success = bool(result)
                 
                 if is_success:
-                    # '설문참여'는 개별 항목별로 이미 알림을 보냈으므로 최종 요약 알림은 건너뜀
-                    skip = (module_name == "설문참여")
+                    # '세미나 풀이'는 개별 항목별로 이미 알림을 보냈으므로 최종 요약 알림은 건너뜀
+                    skip = (module_name == "세미나 풀이")
                     self.log_success(module_name, gui_callbacks, message, skip_notify=skip)
                     self.handle_special_actions(module_name, 'success')
                 else:
                     self.log_failure(module_name, gui_callbacks, message)
                     self.handle_special_actions(module_name, 'failure')
 
-                # [추가] 설문참여 모듈인 경우 미오픈 설문에 대한 1분 재시도 대기열 업데이트
-                if module_name == "설문참여" and isinstance(result, dict) and result.get('success'):
+                # [추가] 세미나 풀이 모듈인 경우 미오픈 설문에 대한 1분 재시도 대기열 업데이트
+                if module_name == "세미나 풀이" and isinstance(result, dict) and result.get('success'):
                     data = result.get('data', {})
                     targets = data.get('targets', [])
                     for t in targets:
@@ -445,9 +445,9 @@ class TaskManager:
                                         self.logger.info(f"확정 종료 세미나로 등록 (이후 전체 스캔 제외): {title}")
 
 
-                # [중요] 특정 모듈(로그인, 출석체크, 퀴즈풀기, 설문참여) 완료 후에는 자동으로 포인트 체크 수행
+                # [중요] 특정 모듈(로그인, 출석 체크, 퀴즈 풀이, 세미나 풀이) 완료 후에는 자동으로 포인트 체크 수행
                 # 각 모듈 내부에서 수행하던 것을 TaskManager가 통합 관리하도록 변경 (순서 보장)
-                if module_name in ["로그인", "출석체크", "퀴즈풀기", "설문참여"]:
+                if module_name in ["로그인", "출석 체크", "퀴즈 풀이", "세미나 풀이"]:
                     try:
                         self.logger.info(f"{module_name} 완료 후 포인트 상태 확인 시작...")
                         points_class = self.get_module_class('points')
@@ -496,7 +496,7 @@ class TaskManager:
         return result
     
     def execute_attendance(self, gui_callbacks):
-        """출석체크 실행"""
+        """출석 체크 실행"""
         # 설정 기반으로 모듈 실행 (하드코딩 제거)
         return self.execute_module_by_config('attendance', gui_callbacks)
     
@@ -506,7 +506,7 @@ class TaskManager:
         return self.execute_module_by_config('quiz', gui_callbacks)
     
     def execute_survey(self, gui_callbacks, target_url=None, target_title=None):
-        """설문참여 실행"""
+        """세미나 풀이 실행"""
         # 전체 스캔(target_url 없음) 시, 이미 확정 종료된 세미나 URL은 건너맜
         skip_urls = None
         if target_url is None and hasattr(self.state, '_permanently_closed_seminar_urls') and self.state._permanently_closed_seminar_urls:
@@ -527,7 +527,7 @@ class TaskManager:
                 seminar = module_class(web_auto, gui_logger)
                 seminar.set_callbacks(gui_callbacks)
                 
-                gui_callbacks['log_message']("🚀 라이브세미나 정보 수집을 시작합니다...")
+                gui_callbacks['log_message']("🚀 세미나 목록 정보 수집을 시작합니다...")
                 gui_callbacks['update_status']("세미나 정보 수집 중...")
                 
                 seminars_res = seminar.get_seminar_list()
@@ -710,7 +710,7 @@ class TaskManager:
 
                                     # 현재 여유가 있으면 즉시 시도도 병행 (점급 설문 참여)
                                     if self.state.current_module is None:
-                                        gui_callbacks['log_message']("📝 자동 설문참여를 시작합니다...")
+                                        gui_callbacks['log_message']("📝 자동 세미나 풀이를 시작합니다...")
                                         self.execute_survey(gui_callbacks)
                     
                     # [추가] 자동 세미나 입장 로직: 시작 시간 기반
@@ -1049,7 +1049,7 @@ class TaskManager:
             now = datetime.now()
             today = now.date()
             
-            # 1. 자동 출석체크 체크
+            # 1. 자동 출석 체크 체크
             if settings.get('auto_attendance') and self.state.last_auto_attendance_date != today:
                 sch_hour = settings.get('auto_attendance_hour')
                 sch_min = settings.get('auto_attendance_min')
@@ -1059,13 +1059,13 @@ class TaskManager:
                 
                 # 현재 시간이 예약 시간 이후이고, 프로그램 시작 시간 이후인 경우에만 실행
                 if now >= scheduled_time and scheduled_time >= self.state.startup_time:
-                    gui_callbacks['log_message'](f"⏰ 예약된 자동 출석체크를 시작합니다. (설정시간: {sch_hour:02d}:{sch_min:02d})")
-                    gui_callbacks['update_status']("자동 출석체크 중...")
+                    gui_callbacks['log_message'](f"⏰ 예약된 자동 출석 체크를 시작합니다. (설정시간: {sch_hour:02d}:{sch_min:02d})")
+                    gui_callbacks['update_status']("자동 출석 체크 중...")
                     self.execute_attendance(gui_callbacks)
                     self.state.last_auto_attendance_date = today
                     return True
 
-            # 2. 자동 퀴즈풀기 체크
+            # 2. 자동 퀴즈 풀이 체크
             if settings.get('auto_quiz') and self.state.last_auto_quiz_date != today:
                 sch_hour = settings.get('auto_quiz_hour')
                 sch_min = settings.get('auto_quiz_min')
@@ -1075,8 +1075,8 @@ class TaskManager:
                 
                 # 현재 시간이 예약 시간 이후이고, 프로그램 시작 시간 이후인 경우에만 실행
                 if now >= scheduled_time and scheduled_time >= self.state.startup_time:
-                    gui_callbacks['log_message'](f"⏰ 예약된 자동 퀴즈풀기를 시작합니다. (설정시간: {sch_hour:02d}:{sch_min:02d})")
-                    gui_callbacks['update_status']("자동 퀴즈풀기 중...")
+                    gui_callbacks['log_message'](f"⏰ 예약된 자동 퀴즈 풀이를 시작합니다. (설정시간: {sch_hour:02d}:{sch_min:02d})")
+                    gui_callbacks['update_status']("자동 퀴즈 풀이 중...")
                     self.execute_quiz(gui_callbacks)
                     self.state.last_auto_quiz_date = today
                     return True
@@ -1130,11 +1130,11 @@ class TaskManager:
                         
                         try:
                             # 상태 업데이트
-                            self.state.current_module = '설문참여'
+                            self.state.current_module = '세미나 풀이'
                             module_class = self.get_module_class('survey')
                             
                             # 동기적으로 실행 (이미 백그라운드 스레드 상태임)
-                            success = self.execute_module_safely(module_class, "설문참여", gui_callbacks, target_url=url, target_title=title)
+                            success = self.execute_module_safely(module_class, "세미나 풀이", gui_callbacks, target_url=url, target_title=title)
                             
                             # 결과 처리
                             surveys = self._load_pending_surveys() # 최신화 (실행 중 추가된 내역 반영)
@@ -1282,9 +1282,9 @@ class TaskManager:
     def _get_kakao_category(self, module_name):
         """모듈 이름을 카톡 알림 카테고리 키로 변환"""
         mapping = {
-            "출석체크": "notify_attendance",
-            "퀴즈풀기": "notify_quiz",
-            "설문참여": "notify_survey",
+            "출석 체크": "notify_attendance",
+            "퀴즈 풀이": "notify_quiz",
+            "세미나 풀이": "notify_survey",
             "세미나 자동신청": "notify_seminar_join",
             "세미나 입장": "notify_seminar_enter",
             "배민 쿠폰 구매": "notify_baemin",

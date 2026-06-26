@@ -50,10 +50,10 @@ class UserDashboard(tk.Frame):
         )
         self.points_label.grid(row=1, column=0, pady=(0, 10), padx=(0, 20), sticky='ew')
         
-        # 출석체크 상태
+        # 출석 체크 상태
         self.attendance_label = tk.Label(
             self.user_info_frame,
-            text="출석체크: 미완료",
+            text="출석 체크: 미완료",
             font=("맑은 고딕", 12),
             bg='#ffffff',
             fg='#e74c3c'
@@ -88,7 +88,7 @@ class UserDashboard(tk.Frame):
             is_done = str(value) == "True" or ("완료" in str(value) and "미완료" not in str(value))
             text_val = "완료" if is_done else "미완료"
             color_val = "#27ae60" if is_done else "#e74c3c"
-            self.attendance_label.config(text=f"출석체크: {text_val}", fg=color_val)
+            self.attendance_label.config(text=f"출석 체크: {text_val}", fg=color_val)
         elif display_type in ("quiz", "quiz_status"):
             is_done = str(value) == "True" or ("완료" in str(value) and "미완료" not in str(value))
             text_val = "완료" if is_done else "미완료"

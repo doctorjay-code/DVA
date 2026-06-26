@@ -15,10 +15,10 @@ MSG_LOGIN_STEP_WAIT_FORM = "로그인 폼 로딩 대기"
 MSG_LOGIN_STEP_PERFORM = "로그인 정보 입력 및 로그인"
 MSG_LOGIN_STEP_CHECK = "로그인 성공 여부 확인"
 
-# --- 📅 출석체크 (Attendance) ---
-MSG_ATTENDANCE_START = "📅 출석체크를 시작합니다..."
-MSG_ATTENDANCE_SUCCESS = "✅ 출석체크 성공"
-MSG_ATTENDANCE_ALREADY = "✅ 이미 출석체크가 완료되었습니다."
+# --- 📅 출석 체크 (Attendance) ---
+MSG_ATTENDANCE_START = "📅 출석 체크를 시작합니다..."
+MSG_ATTENDANCE_SUCCESS = "✅ 출석 체크 성공"
+MSG_ATTENDANCE_ALREADY = "✅ 이미 출석 체크가 완료되었습니다."
 
 # --- 📝 퀴즈 (Quiz) ---
 MSG_QUIZ_START = "📝 일일 퀴즈 풀기를 시작합니다..."

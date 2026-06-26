@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 포인트 확인 모듈
-출석체크와 퀴즈풀기 완료 후 포인트 변화를 확인합니다.
+출석 체크와 퀴즈 풀이 완료 후 포인트 변화를 확인합니다.
 """
 
 from datetime import datetime
@@ -25,7 +25,7 @@ DATE_CELL_SELECTOR = "td.date"
 CONTENT_CELL_SELECTOR = "td:nth-child(3)"
 
 # 활동 타입 상수 정의
-ACTIVITY_TYPE_ATTENDANCE = "출석체크"
+ACTIVITY_TYPE_ATTENDANCE = "출석 체크"
 ACTIVITY_TYPE_QUIZ = "퀴즈"
 
 # 날짜 형식 상수 정의
@@ -45,7 +45,7 @@ class PointsCheckModule(BaseModule):
     
     주요 기능:
     - 사용자 정보 수집 (이름, 포인트)
-    - 출석체크 및 퀴즈 참여 상태 확인
+    - 출석 체크 및 퀴즈 참여 상태 확인
     - GUI 대시보드 자동 업데이트
     
     성능 최적화:
@@ -82,7 +82,7 @@ class PointsCheckModule(BaseModule):
             if 'update_user_info' in callbacks:
                 callbacks['update_user_info'](result['user_name'])
             
-            # 포인트, 출석체크, 퀴즈 상태 업데이트
+            # 포인트, 출석 체크, 퀴즈 상태 업데이트
             if 'update_display' in callbacks:
                 update_display = callbacks['update_display']
                 update_display('points', result['points'])
@@ -124,7 +124,7 @@ class PointsCheckModule(BaseModule):
             summary_msg = (
                 f"[{user_name}님 상태 요약]\n"
                 f"💰 포인트: {points_data['points']}P\n"
-                f"📅 출석체크: {'완료' if points_data[STATUS_KEY_ATTENDANCE] == STATUS_ATTENDANCE_COMPLETE else '미완료'}\n"
+                f"📅 출석 체크: {'완료' if points_data[STATUS_KEY_ATTENDANCE] == STATUS_ATTENDANCE_COMPLETE else '미완료'}\n"
                 f"🧠 퀴즈참여: {'완료' if points_data[STATUS_KEY_QUIZ] == STATUS_QUIZ_COMPLETE else '미완료'}"
             )
             
@@ -213,7 +213,7 @@ class PointsCheckModule(BaseModule):
             
             # 오늘 활동 상태 확인
             today = self._get_today_date()
-            attendance_done = self._check_today_activity("출석체크", today)
+            attendance_done = self._check_today_activity("출석 체크", today)
             quiz_done = self._check_today_activity("퀴즈", today)
             
             return {
@@ -240,7 +240,7 @@ class PointsCheckModule(BaseModule):
                     date_text = row.find_element(By.CSS_SELECTOR, DATE_CELL_SELECTOR).text.strip()
                     content_text = row.find_element(By.CSS_SELECTOR, CONTENT_CELL_SELECTOR).text.strip()
                     
-                    if date_text == today and activity_type_key in content_text:
+                    if date_text == today and (activity_type_key.replace(" ", "") in content_text.replace(" ", "")):
                         self.log_success(f"{activity_type_key} 활동 발견!")
                         return True
                         

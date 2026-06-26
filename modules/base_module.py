@@ -7,8 +7,8 @@
 import logging
 
 # 상수들을 직접 정의하여 순환 import 방지
-STATUS_ATTENDANCE_COMPLETE = "출석체크 완료"
-STATUS_ATTENDANCE_INCOMPLETE = "출석체크 미완료"
+STATUS_ATTENDANCE_COMPLETE = "출석 체크 완료"
+STATUS_ATTENDANCE_INCOMPLETE = "출석 체크 미완료"
 STATUS_QUIZ_COMPLETE = "퀴즈 참여 완료"
 STATUS_QUIZ_INCOMPLETE = "퀴즈 참여 미완료"
 

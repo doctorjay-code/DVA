@@ -108,7 +108,7 @@ class LoginModule(BaseModule):
             # 로그인 성공 로그
             self.log_success("자동 로그인이 성공적으로 완료되었습니다!")
             
-            # 로그인 후 자동으로 포인트 상태 확인 (출석체크와 동일한 방식)
+            # 로그인 후 자동으로 포인트 상태 확인 (출석 체크와 동일한 방식)
             return self._check_points_after_login()
             
         except Exception as e:

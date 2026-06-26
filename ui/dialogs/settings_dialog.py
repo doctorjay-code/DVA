@@ -556,7 +556,7 @@ class SettingsDialog:
         tk.Label(attendance_time_frame, text="분", font=("맑은 고딕", 10), bg='#f0f0f0', fg='#2c3e50').pack(side='left')
         
         tk.Label(
-            auto_frame, text="  └ 지정한 시간에 오늘의 출석체크를 자동으로 진행합니다.",
+            auto_frame, text="  └ 지정한 시간에 오늘의 출석 체크를 자동으로 진행합니다.",
             font=("맑은 고딕", 9), bg='#f0f0f0', fg='#7f8c8d'
         ).pack(anchor='w', pady=(0, 5), padx=25)
 
@@ -804,7 +804,7 @@ class SettingsDialog:
         # 초기 상태 토글 호출
         toggle_delay_widgets()
 
-        # 7. 자동 세미나 설문 제출 (자동 설문참여 여부와 무관하게 항상 독립적으로 설정 가능)
+        # 7. 자동 세미나 설문 제출 (자동 세미나 풀이 여부와 무관하게 항상 독립적으로 설정 가능)
         self.setting_vars['auto_survey_submit'] = tk.BooleanVar(value=self.get_setting('auto_survey_submit'))
         survey_submit_check = tk.Checkbutton(
             auto_frame, text="📋 자동 세미나 설문 제출", variable=self.setting_vars['auto_survey_submit'],

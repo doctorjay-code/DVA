@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-설문 문제 관리 팝업 대화상자 (GUI)
+세미나 문제 관리 팝업 대화상자 (GUI)
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -9,7 +9,7 @@ from modules.survey_problem import SurveyProblemManager
 
 def open_survey_problem_manager(parent_window, gui_logger=None, initial_question=None, initial_category=None):
     """
-    설문 문제 관리 팝업 창을 엽니다.
+    세미나 문제 관리 팝업 창을 엽니다.
     
     Args:
         parent_window: 부모 창 (tkinter.Tk)
@@ -21,7 +21,7 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
     
     # 팝업 창 생성
     popup = tk.Toplevel(parent_window)
-    popup.title("📝 설문 문제 관리")
+    popup.title("📝 세미나 문제 관리")
     popup.geometry("900x600")
     popup.minsize(800, 500)
     popup.grab_set()

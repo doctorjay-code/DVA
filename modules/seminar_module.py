@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 세미나 모듈
-닥터빌 라이브세미나 정보를 수집하고 관리합니다.
+닥터빌 세미나 목록 정보를 수집하고 관리합니다.
 """
 
 import time
@@ -58,10 +58,10 @@ BUTTON_CONFIGS = {
 class SeminarModule(BaseModule):
     # 로그 메시지 상수
     LOG_MESSAGES = {
-        'START': "라이브세미나 모듈 시작",
-        'NAVIGATING': "라이브세미나 페이지로 이동 중...",
+        'START': "세미나 목록 모듈 시작",
+        'NAVIGATING': "세미나 목록 페이지로 이동 중...",
         'WAITING': "페이지 로딩 대기 중...",
-        'SUCCESS': "라이브세미나 페이지 이동 완료",
+        'SUCCESS': "세미나 목록 페이지 이동 완료",
         'COLLECTING': "세미나 정보 수집 시작...",
         'COMPLETE': "총 {count}개의 세미나 정보 수집 완료",
         'NO_DATA': "세미나 정보를 찾을 수 없습니다.",

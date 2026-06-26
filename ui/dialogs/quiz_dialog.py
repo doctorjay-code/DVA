@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 일반 퀴즈 문제 관리 팝업 대화상자
-설문 문제 관리와 동일한 디자인과 기능을 제공합니다.
+세미나 문제 관리와 동일한 디자인과 기능을 제공합니다.
 """
 import tkinter as tk
 from modules.quiz_problem import QuizProblemManager

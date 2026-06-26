@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-설문참여 모듈
-닥터빌 세미나 설문참여 기능을 담당합니다.
+세미나 풀이 모듈
+닥터빌 세미나 세미나 풀이 기능을 담당합니다.
 """
 
 import os
@@ -30,8 +30,8 @@ REENTER_BUTTON_SELECTOR = ".btn_bn.btn_enter.btn_seminar_agree"
 # 에러 메시지 상수 정의
 ERROR_FIRST_SEMINAR_SELECTION = "첫 번째 세미나 자동 선택 실패"
 ERROR_REENTER_BUTTON_CLICK = "재입장하기 버튼 클릭 실패"
-ERROR_SURVEY_PAGE_NAVIGATION = "설문참여 페이지 이동 중 오류"
-ERROR_SURVEY_BUTTON_CLICK = "설문참여 버튼 클릭 실패"
+ERROR_SURVEY_PAGE_NAVIGATION = "세미나 풀이 페이지 이동 중 오류"
+ERROR_SURVEY_BUTTON_CLICK = "세미나 풀이 버튼 클릭 실패"
 
 class SurveyModule(BaseModule):
     _is_running = False  # 정적 변수로 실행 중 여부 관리
@@ -505,7 +505,7 @@ class SurveyModule(BaseModule):
             self.log_warning(f"창 복구 중 오류 발생: {e}")
 
     def execute(self, target_url=None, target_title=None, skip_urls=None):
-        """설문참여 페이지로 이동하고 첫 번째 세미나 자동 선택"""
+        """세미나 풀이 페이지로 이동하고 첫 번째 세미나 자동 선택"""
         original_window = None
         try:
             # 중복 실행 방지
@@ -522,11 +522,11 @@ class SurveyModule(BaseModule):
             
             original_window = self.web_automation.driver.current_window_handle
             
-            self.log_info("설문참여 페이지로 이동합니다...")
+            self.log_info("세미나 풀이 페이지로 이동합니다...")
             
             # VOD 목록 페이지로 이동
             self.web_automation.driver.get(VOD_LIST_PAGE_URL)
-            self.log_info("설문참여 페이지로 이동 완료")
+            self.log_info("세미나 풀이 페이지로 이동 완료")
             
             # 🔥 첫 번째 세미나 자동 클릭
             self.log_info("첫 번째 세미나를 자동으로 선택합니다...")
@@ -598,7 +598,7 @@ class SurveyModule(BaseModule):
                     time.sleep(0.5)
 
                     # 재입장하기 버튼 확인 및 처리
-                    res = self.auto_click_reenter_button()
+                    res = self.auto_click_reenter_button(target['title'])
                     
                     is_success = False
                     reason = None
@@ -704,7 +704,7 @@ class SurveyModule(BaseModule):
             if original_window and self.web_automation and self.web_automation.driver:
                 try:
                     self._recover_to_original_window(original_window)
-                    self.log_info("설문참여 완료 후 추가 창을 정리합니다...")
+                    self.log_info("세미나 풀이 완료 후 추가 창을 정리합니다...")
                     self.web_automation.close_other_windows(original_window)
                 except Exception as e:
                     self.log_warning(f"창 정리 중 오류: {str(e)}")
@@ -715,7 +715,7 @@ class SurveyModule(BaseModule):
                 SurveyModule._is_running = False
 
     
-    def auto_click_reenter_button(self):
+    def auto_click_reenter_button(self, target_title=None):
         """재입장하기 버튼을 자동으로 클릭합니다."""
         try:
             self.log_info("재입장하기 버튼 검색 중...")
@@ -731,10 +731,10 @@ class SurveyModule(BaseModule):
                 reenter_button.click()
                 
                 self.log_info("✅ 재입장하기 버튼 자동 클릭 완료")
-                self.log_info("새로운 팝업 창에서 설문참여 버튼을 찾는 중...")
+                self.log_info("새로운 팝업 창에서 세미나 풀이 버튼을 찾는 중...")
                 
-                # 🔥 새로운 팝업 창에서 설문참여 버튼 자동 클릭
-                res = self.auto_click_survey_in_popup()
+                # 🔥 새로운 팝업 창에서 세미나 풀이 버튼 자동 클릭
+                res = self.auto_click_survey_in_popup(target_title)
                 if isinstance(res, dict):
                     return res
                 elif res is False:
@@ -750,8 +750,8 @@ class SurveyModule(BaseModule):
             self.log_error(f"{ERROR_REENTER_BUTTON_CLICK}: {str(e)}")
             return {"success": False, "reason": "failed", "message": f"재입장 버튼 클릭 실패: {str(e)}"}
     
-    def auto_click_survey_in_popup(self):
-        """새로운 팝업 창에서 설문참여 버튼을 자동으로 클릭합니다."""
+    def auto_click_survey_in_popup(self, target_title=None):
+        """새로운 팝업 창에서 세미나 풀이 버튼을 자동으로 클릭합니다."""
         original_window = None
         try:
             self.log_info("새로운 팝업 창 대기 중...")
@@ -778,21 +778,21 @@ class SurveyModule(BaseModule):
             self.web_automation.driver.switch_to.window(popup_window)
             
             self.log_info("팝업 창으로 전환 완료")
-            self.log_info("설문참여 버튼 검색 중...")
+            self.log_info("세미나 풀이 버튼 검색 중...")
             
-            # 설문참여 버튼 찾기 (안전하게)
+            # 세미나 풀이 버튼 찾기 (안전하게)
             survey_button = self.find_element_safe(By.CSS_SELECTOR, "#surveyEnter")
             
-            self.log_info("설문참여 버튼 발견")
+            self.log_info("세미나 풀이 버튼 발견")
             
             # 버튼 클릭
             survey_button.click()
             
-            self.log_info("✅ 설문참여 버튼 자동 클릭 완료")
+            self.log_info("✅ 세미나 풀이 버튼 자동 클릭 완료")
             self.log_info("개인정보 동의 팝업에서 설문하기 버튼을 찾는 중...")
             
             # 🔥 개인정보 동의 팝업에서 설문하기 버튼 자동 클릭
-            result = self.auto_click_survey_button_in_agree_popup()
+            result = self.auto_click_survey_button_in_agree_popup(target_title)
             
             # 작업을 마친 팝업 창(VOD/설문진입창) 닫기
             try:
@@ -820,14 +820,14 @@ class SurveyModule(BaseModule):
                     self._recover_to_original_window(original_window)
                 self.log_warning("사용자가 설문 창을 닫아 작업을 중단합니다.")
                 return {"success": False, "reason": "user_cancelled", "message": "사용자가 설문 창을 닫았습니다."}
-            self.log_error(f"팝업 창에서 설문참여 버튼 클릭 실패: {err_msg}")
+            self.log_error(f"팝업 창에서 세미나 풀이 버튼 클릭 실패: {err_msg}")
             
             if original_window:
                 self._recover_to_original_window(original_window)
             
-            return {"success": False, "reason": "failed", "message": f"팝업 창에서 설문참여 버튼 클릭 실패: {err_msg}"}
+            return {"success": False, "reason": "failed", "message": f"팝업 창에서 세미나 풀이 버튼 클릭 실패: {err_msg}"}
     
-    def auto_click_survey_button_in_agree_popup(self):
+    def auto_click_survey_button_in_agree_popup(self, target_title=None):
         """개인정보 동의 팝업에서 설문하기 버튼을 자동으로 클릭합니다."""
         try:
             self.log_info("개인정보 동의 팝업 대기 중...")
@@ -870,7 +870,15 @@ class SurveyModule(BaseModule):
             
             self.log_info("✅ 설문하기 버튼 자동 클릭 완료")
             self.log_info("설문 페이지로 이동 중...")
-            self.log_info("새로운 설문 창에서 자동 답변을 시작합니다...")
+            
+            # [프로그램 GUI 로그 및 카카오톡 알림 동시 전송] 세미나 풀이 시작 알림
+            if target_title:
+                start_msg = f"📋 세미나 풀이 시작: {target_title}"
+                self.log_info(start_msg)
+                if hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks:
+                    self.gui_callbacks['notify_kakao'](start_msg, cat="notify_survey")
+            else:
+                self.log_info("새로운 설문 창에서 자동 답변을 시작합니다...")
             
             # 🔥 새로운 설문 창에서 자동 답변 및 제출
             result = self.auto_fill_and_submit_survey()
@@ -1518,11 +1526,11 @@ class SurveyModule(BaseModule):
                                 self.log_warning(f"퀴즈이지만 정답 미등록: {normalized_question[:45]}...")
                                     
                             if not quiz_answer:
-                                # 퀴즈지만 정답이 없는 경우, 보기 선택하지 않고 '설문문제' 창 띄우기
+                                # 퀴즈지만 정답이 없는 경우, 보기 선택하지 않고 '세미나 문제' 창 띄우기
                                 if hasattr(self, 'gui_callbacks') and 'gui_instance' in self.gui_callbacks:
                                     gui = self.gui_callbacks['gui_instance']
                                     if hasattr(gui, 'root') and hasattr(gui, 'open_survey_problem'):
-                                        self.log_warning(f"문제 {question_number}번: 정답 미등록. 설문 문제 자동 관리 창을 엽니다.")
+                                        self.log_warning(f"문제 {question_number}번: 정답 미등록. 세미나 문제 자동 관리 창을 엽니다.")
 
                                         # 카테고리 추출 (페이지 타이틀에서)
                                         category = ""

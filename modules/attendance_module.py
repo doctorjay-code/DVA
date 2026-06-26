@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-출석체크 모듈
-닥터빌 출석체크 기능을 담당합니다.
+출석 체크 모듈
+닥터빌 출석 체크 기능을 담당합니다.
 """
 
 import logging
@@ -24,24 +24,24 @@ DEFAULT_IMPLICIT_WAIT = 5
 
 # 에러 메시지 상수 정의
 ERROR_WEBDRIVER_NOT_INITIALIZED = "웹드라이버가 초기화되지 않았습니다."
-ERROR_ATTENDANCE_PAGE_NAVIGATION = "출석체크 페이지 이동 실패"
+ERROR_ATTENDANCE_PAGE_NAVIGATION = "출석 체크 페이지 이동 실패"
 ERROR_ATTEND_BUTTON_CLICK = "출석하기 버튼 클릭 실패"
-ERROR_ATTENDANCE_EXECUTION = "출석체크 실행 중 오류 발생"
+ERROR_ATTENDANCE_EXECUTION = "출석 체크 실행 중 오류 발생"
 
 class AttendanceModule(BaseModule):
     def __init__(self, web_automation, gui_logger=None):
         super().__init__(web_automation, gui_logger)
     
     def execute(self):
-        """출석체크 페이지로 이동하고 포인트 받기 버튼 클릭"""
-        """출석체크 작업 실행"""
+        """출석 체크 페이지로 이동하고 포인트 받기 버튼 클릭"""
+        """출석 체크 작업 실행"""
         is_success = False
         result_msg = ""
         
         try:
             self.log_info(MSG_ATTENDANCE_START)
             
-            # 출석체크 페이지로 이동
+            # 출석 체크 페이지로 이동
             self._navigate_to_attendance_page()
             
             # 출석 버튼 클릭 시도
@@ -55,17 +55,17 @@ class AttendanceModule(BaseModule):
             
         except Exception as e:
             is_success = False
-            result_msg = f"출석체크 실행 중 오류 발생: {str(e)}"
+            result_msg = f"출석 체크 실행 중 오류 발생: {str(e)}"
             self.log_error(result_msg)
             
         return self.create_result(is_success, result_msg)
     
     def _navigate_to_attendance_page(self):
-        """출석체크 페이지로 이동"""
+        """출석 체크 페이지로 이동"""
         try:
             self.web_automation.driver.get(ATTENDANCE_PAGE_URL)
             self.web_automation.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            self.log_info("출석체크 페이지 로딩 완료")
+            self.log_info("출석 체크 페이지 로딩 완료")
             return True
         except Exception as e:
             self.log_error(f"{ERROR_ATTENDANCE_PAGE_NAVIGATION}: {str(e)}")
@@ -118,12 +118,12 @@ class AttendanceModule(BaseModule):
         """성공 팝업 확인"""
         try:
             self.find_element_safe(By.ID, SUCCESS_POPUP_ID, timeout=5)
-            self.log_info("출석체크 성공! 포인트가 적립되었습니다.")
+            self.log_info("출석 체크 성공! 포인트가 적립되었습니다.")
         except Exception:
-            self.log_info("출석체크 완료 (성공 팝업 확인 불가)")
+            self.log_info("출석 체크 완료 (성공 팝업 확인 불가)")
     
     def _check_points_after_attendance(self):
-        """출석체크 후 포인트 상태 확인 - BaseModule의 공통 메서드 사용"""
+        """출석 체크 후 포인트 상태 확인 - BaseModule의 공통 메서드 사용"""
         self.check_points_after_activity()
     
     # 중복된 _log 메서드 제거 - BaseModule의 log_info 사용
