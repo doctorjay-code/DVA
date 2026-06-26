@@ -761,6 +761,12 @@ class DoctorBillApp:
     def check_for_updates(self):
         """업데이트 확인 로직 (백그라운드 스레드)"""
         base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 💡 개발자 모드 감지 (.git 폴더가 존재할 경우 업데이트 체크 생략)
+        if os.path.exists(os.path.join(base_dir, ".git")):
+            self.root.after(0, lambda: self.log_message("[시스템] 개발자 모드 감지: 업데이트 검사를 생략합니다."))
+            return
+            
         version_file = os.path.join(base_dir, "data", "version.json")
         github_repo_url = "https://api.github.com/repos/doctorjay-code/DVA"
         
