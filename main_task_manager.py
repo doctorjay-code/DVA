@@ -45,6 +45,9 @@ class TaskManagerState:
         self._previous_seminar_urls = {} # 세미나 제목 대 상세 URL 매핑
         self._entered_seminar_links = set() # 자동 입장 완료된 링크 저장
         self._entered_seminar_windows = [] # 자동 입장 완료된 창 정보 (handle, enter_time, title, link)
+        self._survey_retry_queue = [] # 설문 1분 주기 재시도 대기열
+        self._recently_ended_seminars = set() # 최근에 종료 감지된 세미나 제목 목록
+        self._permanently_closed_seminar_urls = set() # 이미 여러 번 시도했으나 설문 버튼이 없는 확정 종료 URL (이후 전체 스캔 시 건너맜)
         self._startup_time = datetime.now()
     
     @property
@@ -292,6 +295,12 @@ class TaskManager:
             self.logger.error(f"알 수 없는 모듈 타입: {module_type}")
             return False
         
+        # 현재 실행 중인 다른 작업이 있다면 중복 실행 방지 (브라우저 락 대기열 누적 차단)
+        # 로그인(login)은 execute_login()에서 별도로 is_logging_in 가드가 있으므로 제외
+        if self.state.current_module is not None and module_type != 'login':
+            self.logger.info(f"작업 요청 거부: 현재 다른 모듈({self.state.current_module})이 실행 중입니다. (요청 모듈: {module_type})")
+            return False
+        
         # 로그인이 필요한 모듈인지 확인
         if module_type in ModuleFactory.MODULES_REQUIRE_LOGIN and not self.check_login_status(gui_callbacks):
             return False
@@ -390,9 +399,55 @@ class TaskManager:
                     self.log_failure(module_name, gui_callbacks, message)
                     self.handle_special_actions(module_name, 'failure')
 
-                # [중요] 특정 모듈(로그인, 출석체크, 퀴즈풀기) 완료 후에는 자동으로 포인트 체크 수행
+                # [추가] 설문참여 모듈인 경우 미오픈 설문에 대한 1분 재시도 대기열 업데이트
+                if module_name == "설문참여" and isinstance(result, dict) and result.get('success'):
+                    data = result.get('data', {})
+                    targets = data.get('targets', [])
+                    for t in targets:
+                        title = t.get('title')
+                        url = t.get('url')
+                        
+                        if t.get('success'):
+                            # 성공했으므로 재시도 대기열 및 최근 종료 목록에서 제거
+                            if hasattr(self.state, '_survey_retry_queue') and self.state._survey_retry_queue:
+                                before_len = len(self.state._survey_retry_queue)
+                                self.state._survey_retry_queue = [item for item in self.state._survey_retry_queue if item.get('url') != url]
+                                if len(self.state._survey_retry_queue) < before_len:
+                                    gui_callbacks['log_message'](f"✅ 설문 완료로 재시도 대기열에서 제거되었습니다: {title}")
+                            # _recently_ended_seminars, _permanently_closed_seminar_urls 에서도 제거
+                            if hasattr(self.state, '_recently_ended_seminars'):
+                                self.state._recently_ended_seminars.discard(title)
+                            if hasattr(self.state, '_permanently_closed_seminar_urls') and url:
+                                self.state._permanently_closed_seminar_urls.discard(url)
+                        else:
+                            # 실패/스킵인 경우 중 재입장 버튼이 없는 경우(미오픈)에만 처리
+                            if t.get('reason') == 'no_reenter_button':
+                                is_recently_ended = hasattr(self.state, '_recently_ended_seminars') and title in self.state._recently_ended_seminars
+                                is_target = (kwargs.get('target_title') == title or kwargs.get('target_url') == url)
+                                
+                                if is_recently_ended or is_target:
+                                    # 최근 종료 세미나 or 명시 대상 → 재시도 대기열에 추가
+                                    if hasattr(self.state, '_survey_retry_queue'):
+                                        existing = any(item.get('url') == url for item in self.state._survey_retry_queue)
+                                        if not existing:
+                                            self.state._survey_retry_queue.append({
+                                                'title': title,
+                                                'url': url,
+                                                'retry_count': 0,
+                                                'last_try_time': datetime.now()
+                                            })
+                                            gui_callbacks['log_message'](f"🔄 설문 미오픈 감지: 1분 뒤 재시도를 위해 대기열에 추가합니다. ({title})")
+                                else:
+                                    # 최근 종료도 아니고 명시 대상도 아님 → 이미 완료됐거나 영구 종료된 세미나
+                                    # 이후 전체 스캔(버튼 클릭) 시 건너뛰도록 등록
+                                    if hasattr(self.state, '_permanently_closed_seminar_urls') and url:
+                                        self.state._permanently_closed_seminar_urls.add(url)
+                                        self.logger.info(f"확정 종료 세미나로 등록 (이후 전체 스캔 제외): {title}")
+
+
+                # [중요] 특정 모듈(로그인, 출석체크, 퀴즈풀기, 설문참여) 완료 후에는 자동으로 포인트 체크 수행
                 # 각 모듈 내부에서 수행하던 것을 TaskManager가 통합 관리하도록 변경 (순서 보장)
-                if module_name in ["로그인", "출석체크", "퀴즈풀기"]:
+                if module_name in ["로그인", "출석체크", "퀴즈풀기", "설문참여"]:
                     try:
                         self.logger.info(f"{module_name} 완료 후 포인트 상태 확인 시작...")
                         points_class = self.get_module_class('points')
@@ -452,8 +507,11 @@ class TaskManager:
     
     def execute_survey(self, gui_callbacks, target_url=None, target_title=None):
         """설문참여 실행"""
-        # 설정 기반으로 모듈 실행 (하드코딩 제거)
-        return self.execute_module_by_config('survey', gui_callbacks, target_url=target_url, target_title=target_title)
+        # 전체 스캔(target_url 없음) 시, 이미 확정 종료된 세미나 URL은 건너맜
+        skip_urls = None
+        if target_url is None and hasattr(self.state, '_permanently_closed_seminar_urls') and self.state._permanently_closed_seminar_urls:
+            skip_urls = set(self.state._permanently_closed_seminar_urls)  # 복사본 전달
+        return self.execute_module_by_config('survey', gui_callbacks, target_url=target_url, target_title=target_title, skip_urls=skip_urls)
     
     def execute_seminar(self, gui_callbacks):
         """라이브 세미나 정보를 확인하고 다이얼로그를 표시합니다."""
@@ -623,15 +681,37 @@ class TaskManager:
                                 self.logger.info(f"세미나 종료 감지: {ended_seminars}")
                                 gui_callbacks['log_message'](f"📢 세미나 종료 감지: {list(ended_seminars)[0]} 외 {len(ended_seminars)-1}건" if len(ended_seminars) > 1 else f"📢 세미나 종료 감지: {list(ended_seminars)[0]}")
                                 
+                                # 최근 종료 세미나 목록 업데이트
+                                if hasattr(self.state, '_recently_ended_seminars'):
+                                    self.state._recently_ended_seminars.update(ended_seminars)
+                                
                                 # 지연 설정 활성화 시 대기열에 추가
                                 if active_settings.get('auto_survey_delay'):
                                     for title in ended_seminars:
                                         url = self.state._previous_seminar_urls.get(title)
                                         self._add_pending_survey(title, url)
                                 else:
-                                    gui_callbacks['log_message']("📝 자동 설문참여를 시작합니다...")
-                                    # 설문 모듈 실행 (별도 스레드에서 돌아가도록 위임)
-                                    self.execute_survey(gui_callbacks)
+                                    # [VOD 미업데이트 안전망] 종료 감지된 세미나를 1분 재시도 대기열에 직접 추가
+                                    # VOD 페이지가 아직 업데이트 안 됐었어도 1분 후 재시도 함으로써 누락 방지
+                                    for title in ended_seminars:
+                                        raw_url = self.state._previous_seminar_urls.get(title)
+                                        if raw_url:
+                                            full_url = ("https://www.doctorville.co.kr" + raw_url) if raw_url.startswith('/') else raw_url
+                                            if hasattr(self.state, '_survey_retry_queue'):
+                                                existing = any(item.get('url') == full_url for item in self.state._survey_retry_queue)
+                                                if not existing:
+                                                    self.state._survey_retry_queue.append({
+                                                        'title': title,
+                                                        'url': full_url,
+                                                        'retry_count': 0,
+                                                        'last_try_time': datetime.now()  # 1분 후 첫 시도
+                                                    })
+                                                    gui_callbacks['log_message'](f"📌 1분 후 설문 참여를 시도합니다. ({title})")
+
+                                    # 현재 여유가 있으면 즉시 시도도 병행 (점급 설문 참여)
+                                    if self.state.current_module is None:
+                                        gui_callbacks['log_message']("📝 자동 설문참여를 시작합니다...")
+                                        self.execute_survey(gui_callbacks)
                     
                     # [추가] 자동 세미나 입장 로직: 시작 시간 기반
                     if active_settings and active_settings.get('auto_seminar_enter'):
@@ -1082,6 +1162,40 @@ class TaskManager:
                                         self.logger.warning(f"⚠️ 지연 설문 실패로 재시도 예정 (현재 재시도 횟수: {retry + 1}/3): {title}")
                         except Exception as ex:
                             self.logger.error(f"지연 설문 백그라운드 실행 오류: {ex}")
+
+            # 3-2. 자동 설문 1분 주기 재시도 대기열 체크
+            if settings.get('auto_survey') and hasattr(self.state, '_survey_retry_queue') and self.state._survey_retry_queue and self.state.current_module is None:
+                executable_item = None
+                executable_index = -1
+                
+                for idx, item in enumerate(self.state._survey_retry_queue):
+                    last_try = item.get('last_try_time')
+                    elapsed = (now - last_try).total_seconds()
+                    if elapsed >= 60.0:  # 60초(1분) 경과 시 실행
+                        executable_item = item
+                        executable_index = idx
+                        break
+                
+                if executable_item:
+                    title = executable_item['title']
+                    url = executable_item['url']
+                    retry = executable_item.get('retry_count', 0)
+                    
+                    # 재시도 횟수 업데이트
+                    executable_item['retry_count'] = retry + 1
+                    executable_item['last_try_time'] = now
+                    
+                    if retry + 1 > 5:  # 최대 5회(5분) 시도 후 포기
+                        self.state._survey_retry_queue.pop(executable_index)
+                        gui_callbacks['log_message'](f"❌ 설문 재시도 5회 초과로 대기열에서 제외합니다 (설문 미오픈 확정): {title}")
+                        self.logger.error(f"설문 재시도 5회 초과로 포기: {title}")
+                        # _recently_ended_seminars에서도 제거하여 이후 스캔에서 재등록되는 것을 완전 차단
+                        if hasattr(self.state, '_recently_ended_seminars'):
+                            self.state._recently_ended_seminars.discard(title)
+                    else:
+                        gui_callbacks['log_message'](f"🔄 [재시도 {retry + 1}/5] 설문 참여를 다시 시도합니다: {title}")
+                        self.execute_survey(gui_callbacks, target_url=url, target_title=title)
+                        return True
 
             # 4. 자동 세미나 신청 체크 (새로고침 직후에만 실행되도록 설계)
             if settings.get('auto_seminar_join') and settings.get('auto_seminar_refresh'):

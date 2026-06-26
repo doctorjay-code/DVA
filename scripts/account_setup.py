@@ -9,15 +9,20 @@ def setup():
     print("="*50 + "\n")
 
     # 1. 계정 별칭 입력
+    print("💡 계정 별칭은 자동으로 생성될 배치 파일(.bat)의 이름이 됩니다. (예: '홍길동' 입력 시 '홍길동_닥터빌.bat' 생성)")
+    print("💡 입력하지 않고 그냥 엔터를 치면 기본값인 'Account1'로 설정됩니다.")
     account_name = input("▶ 계정 별칭을 입력하세요 (예: 계정1, 홍길동): ").strip()
     if not account_name:
         account_name = "Account1"
 
     # 2. 이메일 ID 입력
+    print("💡 입력하신 아이디와 비밀번호는 외부 서버로 전송되지 않으며, 오직 본인 컴퓨터의 배치 파일(.bat)에만 저장되므로 안심하셔도 됩니다.")
+    print("")
     username = input("▶ 닥터빌 로그인 이메일(ID)을 입력하세요: ").strip()
     
-    # 3. 비밀번호 입력 (화면에 보이지 않음)
-    password = getpass.getpass("▶ 닥터빌 로그인 비밀번호를 입력하세요 (입력 시 화면에 표시되지 않습니다): ").strip()
+    # 3. 비밀번호 입력
+    print("")
+    password = input("▶ 닥터빌 로그인 비밀번호를 입력하세요: ").strip()
 
     # 4. 배치 파일 내용 생성 (UTF-8)
     # 현재 실행 중인 파이썬 경로를 기반으로 pythonw.exe 경로 추출
