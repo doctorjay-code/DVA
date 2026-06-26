@@ -84,6 +84,10 @@ class UpdateGUI:
             
             # 완료 메시지
             self.show_complete(success)
+            
+            # 💡 성공 시 메인 프로그램 자동 재시작
+            if success:
+                updater.relaunch_main_program()
         
         self.root.destroy()
 
@@ -119,6 +123,25 @@ class DoctorBillUpdater:
     def print_status(self, message):
         """상태 메시지 출력"""
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        
+    def relaunch_main_program(self):
+        """업데이트 완료 후 메인 프로그램을 재실행합니다."""
+        import subprocess
+        import sys
+        
+        main_script = self.current_dir / "main.py"
+        self.print_status(f"메인 프로그램 재실행 시도: {main_script}")
+        try:
+            # detached process로 실행하여 업데이트 창이 닫혀도 메인 프로그램이 계속 실행되도록 함
+            subprocess.Popen(
+                [sys.executable, str(main_script)],
+                cwd=str(self.current_dir),
+                creationflags=subprocess.DETACHED_PROCESS if os.name == 'nt' else 0,
+                close_fds=True
+            )
+            self.print_status("메인 프로그램 재실행 성공")
+        except Exception as e:
+            self.print_status(f"메인 프로그램 재실행 실패: {e}")
     
     def _cleanup_backup_initial(self):
         """시작 시 기존 백업 폴더 정리"""
