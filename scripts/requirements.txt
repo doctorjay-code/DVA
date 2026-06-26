@@ -1,0 +1,14 @@
+# 핵심 자동화 도구
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+
+# 네트워크 및 보안
+requests>=2.31.0
+certifi>=2024.2.2
+
+# UI 및 이미지 처리
+Pillow>=10.0.0
+pystray>=0.19.4
+
+# 시스템 호환성
+setuptools>=69.0.0
