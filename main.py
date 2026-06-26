@@ -756,7 +756,20 @@ class DoctorBillApp:
 
     def start_update_check(self):
         """백그라운드 스레드에서 업데이트 검사 시작"""
+        self.remove_deprecated_files_locally()
         threading.Thread(target=self.check_for_updates, daemon=True).start()
+
+    def remove_deprecated_files_locally(self):
+        """더 이상 사용되지 않는 옛날 파일 정리 (예: 업데이트.bat)"""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        deprecated_files = ['업데이트.bat']
+        for file_name in deprecated_files:
+            file_path = os.path.join(base_dir, file_name)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
 
     def check_for_updates(self):
         """업데이트 확인 로직 (백그라운드 스레드)"""
