@@ -37,12 +37,14 @@
     "category": "리토바젯"
   },
   "PPI대비 P-CAB에 대한 장점으로 잘못된 것은": {
-    "answer": "3",
-    "category": "펙수클루"
+    "answer": "PPI는 긴 반감기를 가지고 있는 반면 P-CAB은 반감기가 짧아 야간 산분비에 더 효과적이다.",
+    "category": "펙수클루",
+    "answer_num": "3"
   },
   "다음 중 펙수클루 40mg의 특장점이 아닌 것은": {
-    "answer": "3",
-    "category": "펙수클루"
+    "answer": "복통증상 개선효과",
+    "category": "펙수클루",
+    "answer_num": "3"
   },
   "Memantine(글리빅사)은 2003년 FDA 승인을 받은 최초의 중증 알츠하이머병 치료제입니다": {
     "answer": "1",
@@ -344,13 +346,14 @@
     "answer": "3",
     "category": "포시다파"
   },
-  "펙수클루 40mg의 증상개선(가슴쓰림, 만성기침 등) 입증한 연구의 대조군 약물은 무엇일까요": {
-    "answer": "2",
-    "category": "펙수클루"
-  },
   "시너지아 정의 성분을 고르시오.": {
     "answer": "2",
     "category": "시너지아정"
+  },
+  "펙수클루 40mg의 증상개선(가슴쓰림, 만성기침 등) 입증한 연구의 대조군 약물은 무엇일까요": {
+    "answer": "Esomeprazole 40mg",
+    "category": "펙수클루",
+    "answer_num": "2"
   },
   "시너지아 정은 세계최초로 개발된 Citrulline Malate 성분의 정제로, 국책과제로써 8년간의 연구 끝에 개발된 약물이다.": {
     "answer": "O",

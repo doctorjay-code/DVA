@@ -185,7 +185,7 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
         selection = cat_listbox.curselection()
         current_cat = cat_listbox.get(selection[0]) if selection else "전체"
         clear_inputs()
-        refresh_list(current_cat)
+        refresh_list(current_cat, refresh_cats=True)
     
     # 추가/수정 버튼 (동적으로 텍스트 변경)
     action_button = tk.Button(
@@ -277,7 +277,11 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
         selection = cat_listbox.curselection()
         if selection:
             cat = cat_listbox.get(selection[0])
-            refresh_list(cat)
+            refresh_list(cat, refresh_cats=False)
+            clear_inputs()
+            if cat != "전체":
+                category_entry.delete(0, "end")
+                category_entry.insert(0, cat)
 
     cat_listbox.bind('<<ListboxSelect>>', on_category_select)
     
@@ -379,7 +383,7 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
         cat_listbox.select_set(idx)
         cat_listbox.see(idx)
 
-    def refresh_list(selected_category="전체"):
+    def refresh_list(selected_category="전체", refresh_cats=False):
         """목록을 새로고침합니다."""
         for item in tree.get_children():
             tree.delete(item)
@@ -417,7 +421,8 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
             display_question = question[:100] + "..." if len(question) > 100 else question
             tree.insert('', 'end', values=(category, display_question, display_num, display_content, question))
         
-        refresh_categories()
+        if refresh_cats:
+            refresh_categories()
     
     def save_order():
         """트리뷰의 현재 순서대로 json 파일을 다시 저장합니다."""
@@ -492,7 +497,7 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
                 selection = cat_listbox.curselection()
                 current_cat = cat_listbox.get(selection[0]) if selection else "전체"
                 clear_inputs()  # 입력 필드 초기화
-                refresh_list(current_cat)
+                refresh_list(current_cat, refresh_cats=True)
                 if gui_logger:
                     gui_logger(f"🗑️ 퀴즈 삭제: {original_question[:30]}...")
             else:
@@ -525,4 +530,4 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
     close_button.pack(side='right')
     
     # 초기 목록 로드
-    refresh_list()
+    refresh_list(refresh_cats=True)

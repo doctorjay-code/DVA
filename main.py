@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.5.5"
+VERSION = "v3.5.6"
 
 class DoctorBillApp:
     def __init__(self, root):
