@@ -33,7 +33,19 @@ def setup():
 set ACCOUNT_NAME={account_name}
 set ACCOUNT_USERNAME={username}
 set ACCOUNT_PASSWORD={password}
-start /min "" "{pythonw_exe}" main.py
+
+:: pythonw.exe 경로 확인 (1순위: PATH 내 pythonw, 2순위: C:\\Program Files\\Python* 내 최신 pythonw.exe, 3순위: 설치 시점 파이썬)
+set PYTHON_PATH=pythonw.exe
+where pythonw.exe >nul 2>&1
+if errorlevel 1 (
+    set PYTHON_PATH=
+    for /d %%d in ("C:\\Program Files\\Python*") do (
+        if exist "%%d\\pythonw.exe" set PYTHON_PATH="%%d\\pythonw.exe"
+    )
+    if not defined PYTHON_PATH set PYTHON_PATH="{pythonw_exe}"
+)
+
+start /min "" %PYTHON_PATH% main.py
 """
 
     bat_file_name = f"{account_name}_닥터빌.bat"

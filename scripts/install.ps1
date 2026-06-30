@@ -1,4 +1,4 @@
-param()
+﻿param()
 
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host "      닥터빌(DVA) 프로그램 환경 설치 시작" -ForegroundColor Green
