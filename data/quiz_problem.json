@@ -239,16 +239,19 @@
     "category": "시클러"
   },
   "아림시스 주의 성분을 고르시오": {
-    "answer": "1",
-    "category": "아림시스주"
+    "answer": "베바시주맙(Bevacizumab)",
+    "category": "아림시스주",
+    "answer_num": "1"
   },
   "아림시스 주는 FDA와 EMA 모두 승인된 Bevacizumab biosimilar이다": {
-    "answer": "1",
-    "category": "아림시스주"
+    "answer": "O",
+    "category": "아림시스주",
+    "answer_num": "1"
   },
   "아림시스 주의 허가 3상연구 대상 질환은 소세포폐암이다": {
-    "answer": "2",
-    "category": "아림시스주"
+    "answer": "X",
+    "category": "아림시스주",
+    "answer_num": "2"
   },
   "Rasagiline(아질라사)은 Levodopa의 보조 치료제로서 파킨슨병 환자의 증상을 개선합니다. 2005년 Lancet에 실린 Rascol et al.의 연구에서 Rasagiline(아질라사)으로 인하여 개선되는 증상으로 밝혀진 것이 아닌 것을 골라 주십시오": {
     "answer": "4",

@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.6.0"
+VERSION = "v3.6.1"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -689,6 +689,8 @@ class DoctorBillApp:
     # ================= TaskManager -> UI Effects =================
     def log_message(self, message):
         self.root.after(0, lambda: self.ui.work_log.log_message(message))
+        # GUI 로그를 파일 로그에도 똑같이 기록합니다.
+        logging.info(f"[GUI] {message}")
 
     def gui_update_status(self, status):
         self.root.after(0, lambda: self.ui.update_status(status))

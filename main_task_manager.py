@@ -48,6 +48,7 @@ class TaskManagerState:
         self._survey_retry_queue = [] # 설문 1분 주기 재시도 대기열
         self._recently_ended_seminars = set() # 최근에 종료 감지된 세미나 제목 목록
         self._permanently_closed_seminar_urls = set() # 이미 여러 번 시도했으나 설문 버튼이 없는 확정 종료 URL (이후 전체 스캔 시 건너맜)
+        self._last_vod_scan_time = None # 마지막 VOD 자동 스캔 시간 기록 변수
         self._startup_time = datetime.now()
     
     @property
@@ -446,8 +447,21 @@ class TaskManager:
 
 
                 # [중요] 특정 모듈(로그인, 출석 체크, 퀴즈 풀이, 세미나 풀이) 완료 후에는 자동으로 포인트 체크 수행
-                # 각 모듈 내부에서 수행하던 것을 TaskManager가 통합 관리하도록 변경 (순서 보장)
-                if module_name in ["로그인", "출석 체크", "퀴즈 풀이", "세미나 풀이"]:
+                # 단, '세미나 풀이'의 경우 실제로 1건 이상의 설문을 성공적으로 처리했을 때만 후속 포인트 체크를 실행합니다. (5분 주기 자동 스캔 시 알림 도배 방지)
+                should_check_points = False
+                if module_name in ["로그인", "출석 체크", "퀴즈 풀이"]:
+                    should_check_points = True
+                elif module_name == "세미나 풀이":
+                    success_count = 0
+                    if isinstance(result, dict):
+                        success_count = result.get('data', {}).get('success_count', 0)
+                    
+                    if success_count > 0:
+                        should_check_points = True
+                    else:
+                        self.logger.info("세미나 풀이 성공 건수가 0건이므로 후속 포인트 체크를 생략합니다.")
+                
+                if should_check_points:
                     try:
                         self.logger.info(f"{module_name} 완료 후 포인트 상태 확인 시작...")
                         points_class = self.get_module_class('points')
@@ -456,6 +470,14 @@ class TaskManager:
                         points_mod.execute()
                     except Exception as pe:
                         self.logger.error(f"후속 포인트 체크 중 오류: {str(pe)}")
+                        
+                # [추가] '세미나 풀이' 모듈이 최종 완료된 후에는 UI 세미나 목록과 상태 동기화를 위해 즉시 세미나 목록 새로고침 수행
+                if module_name == "세미나 풀이":
+                    try:
+                        self.logger.info("세미나 풀이 완료 후 세미나 목록 새로고침 트리거...")
+                        self._handle_seminar_refresh(gui_callbacks)
+                    except Exception as re:
+                        self.logger.error(f"세미나 풀이 완료 후 새로고침 중 오류: {str(re)}")
                 
                 return is_success
                 
@@ -770,6 +792,15 @@ class TaskManager:
             finally:
                 self.state.current_module = None
                 gui_callbacks['update_status']("대기 중")
+                
+                # 자동 설문 옵션이 켜져 있고 세미나 새로고침이 완료된 후, 5분(300초) 주기로 VOD 자동 스캔
+                if active_settings and active_settings.get('auto_survey'):
+                    now = datetime.now()
+                    if (self.state._last_vod_scan_time is None or 
+                        (now - self.state._last_vod_scan_time).total_seconds() >= 300):
+                        self.state._last_vod_scan_time = now
+                        gui_callbacks['log_message']("📝 [스케줄러] 5분 주기 VOD 목록 자동 스캔을 시작합니다...")
+                        self.execute_survey(gui_callbacks)
 
         threading.Thread(target=_run, daemon=True).start()
 
