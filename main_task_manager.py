@@ -412,9 +412,22 @@ class TaskManager:
                             # 성공했으므로 재시도 대기열 및 최근 종료 목록에서 제거
                             if hasattr(self.state, '_survey_retry_queue') and self.state._survey_retry_queue:
                                 before_len = len(self.state._survey_retry_queue)
-                                self.state._survey_retry_queue = [item for item in self.state._survey_retry_queue if item.get('url') != url]
+                                self.state._survey_retry_queue = [
+                                    item for item in self.state._survey_retry_queue
+                                    if item.get('url') != url and item.get('title') != title
+                                ]
                                 if len(self.state._survey_retry_queue) < before_len:
                                     gui_callbacks['log_message'](f"✅ 설문 완료로 재시도 대기열에서 제거되었습니다: {title}")
+                            # 지연 대기열(파일)에서도 제거
+                            try:
+                                surveys = self._load_pending_surveys()
+                                if surveys:
+                                    new_surveys = [s for s in surveys if s.get('url') != url and s.get('title') != title]
+                                    if len(new_surveys) < len(surveys):
+                                        self._save_pending_surveys(new_surveys)
+                                        gui_callbacks['log_message'](f"✅ 설문 완료로 지연 대기열에서 제거되었습니다: {title}")
+                            except Exception as pe_err:
+                                self.logger.error(f"지연 대기열 제거 중 오류: {pe_err}")
                             # _recently_ended_seminars, _permanently_closed_seminar_urls 에서도 제거
                             if hasattr(self.state, '_recently_ended_seminars'):
                                 self.state._recently_ended_seminars.discard(title)

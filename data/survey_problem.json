@@ -305,8 +305,9 @@
     "category": "카트비피"
   },
   "고혈압 진료지침에서 활동혈압을 권고하는 이유로 옳지 않은 것을 고르시오": {
-    "answer": "4",
-    "category": "카트비피"
+    "answer": "격렬한 운동시 혈압 변동성을 측정하기 위해",
+    "category": "카트비피",
+    "answer_num": "4"
   },
   "노화에 따른 체내 호르몬 변화 중 성장호르몬(GH)에 대한 설명으로 옳은 것은": {
     "answer": "1",
@@ -430,5 +431,15 @@
     "answer": "4",
     "category": "크레스토",
     "answer_num": "4"
+  },
+  "카트BP Pro의 혈압 측정 원리로 옳은 것을 고르시오.": {
+    "answer": "PPG (Photoplethysmography)",
+    "category": "카트BP",
+    "answer_num": "1"
+  },
+  "카트BP Pro의 특장점 중 옳지 않은 것을 고르시오.": {
+    "answer": "혈압 측정 시 정자세 유지 필요",
+    "category": "카트BP",
+    "answer_num": "3"
   }
 }
