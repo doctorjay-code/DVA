@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.7.3"
+VERSION = "v3.7.4"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -98,6 +98,8 @@ class DoctorBillApp:
         # 4. 로깅 설정 (내부 로거를 UI 창으로 연결)
         self.setup_logging()
         
+        self.update_check_completed = False
+
         # 5. 초기 작업 스케줄링 및 트레이 설정
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.setup_tray_icon()
@@ -177,6 +179,10 @@ class DoctorBillApp:
     def auto_login(self):
         self.gui_update_status("로그인 중...")
         self.task_manager.execute_login(self.get_callbacks())
+
+    def complete_update_check_and_login(self):
+        self.update_check_completed = True
+        self.auto_login()
 
     def on_attendance(self):
         self.task_manager.execute_attendance(self.get_callbacks())
@@ -784,7 +790,7 @@ class DoctorBillApp:
         # 💡 개발자 모드 감지 (.git 폴더가 존재할 경우 업데이트 체크 생략)
         if os.path.exists(os.path.join(base_dir, ".git")):
             self.root.after(0, lambda: self.log_message("[시스템] 개발자 모드 감지: 업데이트 검사를 생략합니다."))
-            self.root.after(0, self.auto_login)
+            self.root.after(0, self.complete_update_check_and_login)
             return
             
         version_file = os.path.join(base_dir, "data", "version.json")
@@ -802,12 +808,12 @@ class DoctorBillApp:
         except Exception as e:
             # 네트워크 오류, 타임아웃 등
             self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 실패 (오프라인 모드 / {str(e)})"))
-            self.root.after(0, self.auto_login)
+            self.root.after(0, self.complete_update_check_and_login)
             return
 
         if not remote_sha:
             self.root.after(0, lambda: self.log_message("[시스템] 업데이트 확인 실패 (원격 정보를 받아올 수 없습니다.)"))
-            self.root.after(0, self.auto_login)
+            self.root.after(0, self.complete_update_check_and_login)
             return
 
         # 2. 로컬 SHA 가져오기
@@ -830,11 +836,11 @@ class DoctorBillApp:
                 self.root.after(0, lambda: self.log_message(f"[시스템] 초기 버전 정보 등록 완료: 최신 버전({VERSION})을 사용 중입니다."))
             except Exception:
                 pass
-            self.root.after(0, self.auto_login)
+            self.root.after(0, self.complete_update_check_and_login)
         elif local_sha == remote_sha:
             # 최신 버전
             self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 완료: 최신 버전({VERSION})을 사용 중입니다."))
-            self.root.after(0, self.auto_login)
+            self.root.after(0, self.complete_update_check_and_login)
         else:
             # 업데이트 필요
             self.root.after(0, lambda: self.prompt_update_execution(remote_sha))
@@ -866,10 +872,10 @@ class DoctorBillApp:
                 self.on_closing()
             except Exception as e:
                 messagebox.showerror("오류", f"업데이트 스크립트 실행 실패: {e}")
-                self.auto_login()
+                self.complete_update_check_and_login()
         else:
             self.log_message("[시스템] 업데이트가 취소되었습니다. 현재 버전으로 계속 실행합니다.")
-            self.auto_login()
+            self.complete_update_check_and_login()
 
     # ================= Utils =================
     def setup_logging(self):
@@ -902,6 +908,11 @@ class DoctorBillApp:
         # GUI 로그는 오직 self.log_message() 호출을 통해서만 이루어집니다.
 
     def check_scheduled_tasks(self):
+        # 만약 업데이트 검사가 완료되지 않았다면, 다른 자동 스케줄 및 로그인 작업을 대기합니다.
+        if not getattr(self, 'update_check_completed', False):
+            self.root.after(1000, self.check_scheduled_tasks)
+            return
+            
         self.task_manager.check_scheduled_tasks(self.settings, self.get_callbacks())
         # 반복 실행 (1초 간격으로 검사하여 딜레이 최소화)
         self.root.after(1000, self.check_scheduled_tasks)
