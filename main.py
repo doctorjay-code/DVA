@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.7.1"
+VERSION = "v3.7.2"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -102,8 +102,7 @@ class DoctorBillApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.setup_tray_icon()
         
-        self.root.after(200, self.auto_login)
-        self.root.after(500, self.start_update_check)
+        self.root.after(200, self.start_update_check)
         self.root.after(1000, self.check_scheduled_tasks)
 
         self.ui.work_log.log_message("프로그램이 시작되었습니다.")
@@ -785,6 +784,7 @@ class DoctorBillApp:
         # 💡 개발자 모드 감지 (.git 폴더가 존재할 경우 업데이트 체크 생략)
         if os.path.exists(os.path.join(base_dir, ".git")):
             self.root.after(0, lambda: self.log_message("[시스템] 개발자 모드 감지: 업데이트 검사를 생략합니다."))
+            self.root.after(0, self.auto_login)
             return
             
         version_file = os.path.join(base_dir, "data", "version.json")
@@ -802,10 +802,12 @@ class DoctorBillApp:
         except Exception as e:
             # 네트워크 오류, 타임아웃 등
             self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 실패 (오프라인 모드 / {str(e)})"))
+            self.root.after(0, self.auto_login)
             return
 
         if not remote_sha:
             self.root.after(0, lambda: self.log_message("[시스템] 업데이트 확인 실패 (원격 정보를 받아올 수 없습니다.)"))
+            self.root.after(0, self.auto_login)
             return
 
         # 2. 로컬 SHA 가져오기
@@ -828,9 +830,11 @@ class DoctorBillApp:
                 self.root.after(0, lambda: self.log_message(f"[시스템] 초기 버전 정보 등록 완료: 최신 버전({VERSION})을 사용 중입니다."))
             except Exception:
                 pass
+            self.root.after(0, self.auto_login)
         elif local_sha == remote_sha:
             # 최신 버전
             self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 완료: 최신 버전({VERSION})을 사용 중입니다."))
+            self.root.after(0, self.auto_login)
         else:
             # 업데이트 필요
             self.root.after(0, lambda: self.prompt_update_execution(remote_sha))
@@ -862,8 +866,10 @@ class DoctorBillApp:
                 self.on_closing()
             except Exception as e:
                 messagebox.showerror("오류", f"업데이트 스크립트 실행 실패: {e}")
+                self.auto_login()
         else:
             self.log_message("[시스템] 업데이트가 취소되었습니다. 현재 버전으로 계속 실행합니다.")
+            self.auto_login()
 
     # ================= Utils =================
     def setup_logging(self):
