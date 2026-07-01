@@ -50,6 +50,8 @@ class TaskManagerState:
         self._permanently_closed_seminar_urls = set() # 이미 여러 번 시도했으나 설문 버튼이 없는 확정 종료 URL (이후 전체 스캔 시 건너맜)
         self._last_vod_scan_time = None # 마지막 VOD 자동 스캔 시간 기록 변수
         self._startup_time = datetime.now()
+        self._is_sleeping = False
+        self._prev_active_time_config = None
     
     @property
     def is_seminar_refresh_paused(self):
@@ -1086,6 +1088,69 @@ class TaskManager:
     def check_scheduled_tasks(self, settings, gui_callbacks):
         """설정된 시간에 맞춰 자동 작업을 실행합니다."""
         try:
+            # 0. 특정 시간대 일시정지(대기) 모드 체크
+            use_range = settings.get('use_active_time_range', False)
+            try:
+                start_h = int(settings.get('active_start_h', 9))
+                start_m = int(settings.get('active_start_m', 0))
+                end_h = int(settings.get('active_end_h', 21))
+                end_m = int(settings.get('active_end_m', 0))
+            except:
+                start_h, start_m, end_h, end_m = 9, 0, 21, 0
+                
+            current_config = (use_range, start_h, start_m, end_h, end_m)
+            
+            # 설정 변경 여부를 감지하여 대기 모드 판정 플래그 초기화
+            if getattr(self.state, '_prev_active_time_config', None) != current_config:
+                self.state._prev_active_time_config = current_config
+                self.state._is_sleeping = None  # None으로 변경해 즉시 재평가 유도
+                
+            if use_range:
+                now_time = datetime.now().time()
+                from datetime import time
+                start_time = time(start_h, start_m)
+                end_time = time(end_h, end_m)
+                
+                is_active = False
+                if start_time <= end_time:
+                    is_active = start_time <= now_time <= end_time
+                else:
+                    # 자정을 걸치는 경우 (예: 22:00 ~ 다음날 06:00)
+                    is_active = now_time >= start_time or now_time <= end_time
+                
+                # 12시간제 출력 문자열 생성
+                def format_12h(h, m):
+                    ampm = "오후" if h >= 12 else "오전"
+                    h12 = h % 12
+                    h12 = 12 if h12 == 0 else h12
+                    return f"{ampm} {h12}시 {m:02d}분"
+                
+                start_str = format_12h(start_h, start_m)
+                end_str = format_12h(end_h, end_m)
+                
+                if not is_active:
+                    # _is_sleeping이 True가 아니거나 브라우저 리소스가 켜져 있으면 비활성 모드 수행
+                    if self.state._is_sleeping is not True or self.state.web_automation is not None:
+                        self.state._is_sleeping = True
+                        gui_callbacks['log_message'](f"💤 작동 시간(설정: {start_str} ~ {end_str}) 외 시각이므로 작업을 일시정지하고 대기 모드로 전환합니다.")
+                        if self.state.web_automation:
+                            self.logger.info("비활성 시간대 진입으로 웹브라우저를 안전하게 정리합니다.")
+                            self.cleanup_web_automation()
+                    return False
+                else:
+                    # _is_sleeping이 False가 아니거나 브라우저가 꺼져 있다면 활성 모드 복구 수행
+                    if self.state._is_sleeping is not False or self.state.web_automation is None:
+                        self.state._is_sleeping = False
+                        gui_callbacks['log_message'](f"⏰ 작동 시간(설정: {start_str} ~ {end_str})이 되어 대기 모드를 해제하고 작업을 재개합니다.")
+                        # 대기 모드가 해제되는 시점에 백그라운드 자동 로그인을 수행하여 브라우저 복구
+                        self.execute_login(gui_callbacks)
+            else:
+                # 시간대 가드 비활성화 상태인 경우
+                if self.state._is_sleeping is True or (self.state._is_sleeping is None and self.state.web_automation is None):
+                    self.state._is_sleeping = False
+                    gui_callbacks['log_message']("⏰ 시간 제한 설정이 비활성화되어 작업을 재개합니다.")
+                    self.execute_login(gui_callbacks)
+
             # 브라우저가 준비되지 않았거나 다른 작업이 실행 중이면 건너뛰기
             if self.state.web_automation is None or self.state.current_module is not None:
                 return False

@@ -226,6 +226,7 @@ config.ini
 data/*.json
 !data/quiz_problem.json
 !data/survey_problem.json
+!data/version.json
 data/settings.json
 
 # 백업 파일들

@@ -510,6 +510,39 @@ class SettingsDialog:
         self._setup_options(self.scrollable_frame)
 
     def _setup_options(self, parent):
+        # 활성 시간대 설정을 위한 변수 변환 및 할당
+        start_h24 = self.get_setting('active_start_h')
+        if start_h24 is None or start_h24 is False: start_h24 = 9
+        else: start_h24 = int(start_h24)
+        
+        start_m = self.get_setting('active_start_m')
+        if start_m is None or start_m is False: start_m = 0
+        else: start_m = int(start_m)
+        
+        start_ampm_val = "오후" if start_h24 >= 12 else "오전"
+        start_h12_val = start_h24 % 12
+        if start_h12_val == 0: start_h12_val = 12
+        
+        end_h24 = self.get_setting('active_end_h')
+        if end_h24 is None or end_h24 is False: end_h24 = 21
+        else: end_h24 = int(end_h24)
+        
+        end_m = self.get_setting('active_end_m')
+        if end_m is None or end_m is False: end_m = 0
+        else: end_m = int(end_m)
+        
+        end_ampm_val = "오후" if end_h24 >= 12 else "오전"
+        end_h12_val = end_h24 % 12
+        if end_h12_val == 0: end_h12_val = 12
+
+        self.setting_vars['active_start_ampm'] = tk.StringVar(value=start_ampm_val)
+        self.setting_vars['active_start_h12'] = tk.StringVar(value=str(start_h12_val))
+        self.setting_vars['active_start_m'] = tk.StringVar(value=str(start_m))
+        
+        self.setting_vars['active_end_ampm'] = tk.StringVar(value=end_ampm_val)
+        self.setting_vars['active_end_h12'] = tk.StringVar(value=str(end_h12_val))
+        self.setting_vars['active_end_m'] = tk.StringVar(value=str(end_m))
+
         # 자동 실행 설정 섹션
         auto_frame = tk.LabelFrame(
             parent, text="🤖 자동 실행 설정", font=("맑은 고딕", 12, "bold"),
@@ -832,6 +865,97 @@ class SettingsDialog:
             font=("맑은 고딕", 9), bg='#f0f0f0', fg='#7f8c8d'
         ).pack(anchor='w', pady=(0, 5), padx=25)
 
+        # 9. 특정 시간대 일시정지 설정
+        self.setting_vars['use_active_time_range'] = tk.BooleanVar(value=self.get_setting('use_active_time_range'))
+        
+        time_range_widgets = []
+        def _on_time_range_toggle():
+            state = 'normal' if self.setting_vars['use_active_time_range'].get() else 'disabled'
+            for w in time_range_widgets:
+                try:
+                    if isinstance(w, ttk.Combobox):
+                        w.configure(state='readonly' if state == 'normal' else 'disabled')
+                    else:
+                        w.configure(state=state)
+                except: pass
+                
+        time_range_check = tk.Checkbutton(
+            auto_frame, text="🕒 특정 시간대에만 작동 (일시정지 설정)", variable=self.setting_vars['use_active_time_range'],
+            command=_on_time_range_toggle, font=("맑은 고딕", 11), bg='#f0f0f0', fg='#2c3e50',
+            activebackground='#f0f0f0', activeforeground='#2c3e50'
+        )
+        time_range_check.pack(anchor='w', pady=(2, 0))
+        
+        tk.Label(
+            auto_frame, text="  └ 설정한 활성 시간대 외에는 브라우저를 닫고 대기 모드로 일시정지합니다.",
+            font=("맑은 고딕", 9), bg='#f0f0f0', fg='#7f8c8d'
+        ).pack(anchor='w', pady=(0, 2), padx=25)
+        
+        time_select_frame = tk.Frame(auto_frame, bg='#f0f0f0')
+        time_select_frame.pack(anchor='w', pady=(2, 10), padx=25)
+        
+        lbl_start = tk.Label(time_select_frame, text="⏳ 시작: ", font=("맑은 고딕", 10), bg='#f0f0f0', fg='#2c3e50')
+        lbl_start.pack(side='left')
+        time_range_widgets.append(lbl_start)
+        
+        start_ampm_combo = ttk.Combobox(
+            time_select_frame, textvariable=self.setting_vars['active_start_ampm'],
+            values=["오전", "오후"], width=4, state="readonly", font=("맑은 고딕", 9, "bold")
+        )
+        start_ampm_combo.pack(side='left', padx=2)
+        time_range_widgets.append(start_ampm_combo)
+        
+        start_h_spin = tk.Spinbox(
+            time_select_frame, from_=1, to=12, textvariable=self.setting_vars['active_start_h12'],
+            width=3, font=("맑은 고딕", 10, "bold"), justify='center'
+        )
+        start_h_spin.pack(side='left', padx=2)
+        time_range_widgets.append(start_h_spin)
+        
+        lbl_start_h = tk.Label(time_select_frame, text="시", font=("맑은 고딕", 10), bg='#f0f0f0', fg='#2c3e50')
+        lbl_start_h.pack(side='left')
+        time_range_widgets.append(lbl_start_h)
+        
+        start_m_spin = tk.Spinbox(
+            time_select_frame, from_=0, to=59, textvariable=self.setting_vars['active_start_m'],
+            width=3, font=("맑은 고딕", 10, "bold"), justify='center', format="%02.0f"
+        )
+        start_m_spin.pack(side='left', padx=2)
+        time_range_widgets.append(start_m_spin)
+        
+        lbl_start_m = tk.Label(time_select_frame, text="분  ~  종료: ", font=("맑은 고딕", 10), bg='#f0f0f0', fg='#2c3e50')
+        lbl_start_m.pack(side='left')
+        time_range_widgets.append(lbl_start_m)
+        
+        end_ampm_combo = ttk.Combobox(
+            time_select_frame, textvariable=self.setting_vars['active_end_ampm'],
+            values=["오전", "오후"], width=4, state="readonly", font=("맑은 고딕", 9, "bold")
+        )
+        end_ampm_combo.pack(side='left', padx=2)
+        time_range_widgets.append(end_ampm_combo)
+        
+        end_h_spin = tk.Spinbox(
+            time_select_frame, from_=1, to=12, textvariable=self.setting_vars['active_end_h12'],
+            width=3, font=("맑은 고딕", 10, "bold"), justify='center'
+        )
+        end_h_spin.pack(side='left', padx=2)
+        time_range_widgets.append(end_h_spin)
+        
+        lbl_end_h = tk.Label(time_select_frame, text="시", font=("맑은 고딕", 10), bg='#f0f0f0', fg='#2c3e50')
+        lbl_end_h.pack(side='left')
+        time_range_widgets.append(lbl_end_h)
+        
+        end_m_spin = tk.Spinbox(
+            time_select_frame, from_=0, to=59, textvariable=self.setting_vars['active_end_m'],
+            width=3, font=("맑은 고딕", 10, "bold"), justify='center', format="%02.0f"
+        )
+        end_m_spin.pack(side='left', padx=2)
+        time_range_widgets.append(end_m_spin)
+        
+        lbl_end_m = tk.Label(time_select_frame, text="분", font=("맑은 고딕", 10), bg='#f0f0f0', fg='#2c3e50')
+        lbl_end_m.pack(side='left')
+        time_range_widgets.append(lbl_end_m)
+
         # AI 주관식 자동화 설정 섹션
         ai_frame = tk.LabelFrame(
             parent, text="🧠 AI 주관식 자동화 설정", font=("맑은 고딕", 12, "bold"),
@@ -1073,6 +1197,7 @@ class SettingsDialog:
         _on_close_toggle()
         _on_refresh_toggle()
         _on_kakao_toggle()
+        _on_time_range_toggle()
 
     def _show_kakao_help(self):
         """카카오톡 알림 설정 도움말 표시 (대화형 비주얼 위저드 창)"""
@@ -1081,14 +1206,39 @@ class SettingsDialog:
     def _on_save(self):
         new_settings = {}
         for key, var in self.setting_vars.items():
+            if key in ['active_start_ampm', 'active_start_h12', 'active_end_ampm', 'active_end_h12']:
+                continue
             val = var.get()
             if key in ['baemin_phone', 'gemini_api_key']:
                 new_settings[key] = str(val).strip()
+            elif key in ['active_start_m', 'active_end_m']:
+                try: new_settings[key] = int(val)
+                except: new_settings[key] = 0
             elif isinstance(val, str) and val.isdigit():
                 try: new_settings[key] = int(val, 10)
                 except: new_settings[key] = val
             else:
                 new_settings[key] = val
+        
+        # 12시간제 UI 설정을 24시간제 정수값으로 환산해서 저장
+        try:
+            start_ampm = self.setting_vars['active_start_ampm'].get()
+            start_h12 = int(self.setting_vars['active_start_h12'].get())
+            start_h24 = start_h12 % 12
+            if start_ampm == "오후":
+                start_h24 += 12
+            new_settings['active_start_h'] = start_h24
+            
+            end_ampm = self.setting_vars['active_end_ampm'].get()
+            end_h12 = int(self.setting_vars['active_end_h12'].get())
+            end_h24 = end_h12 % 12
+            if end_ampm == "오후":
+                end_h24 += 12
+            new_settings['active_end_h'] = end_h24
+        except Exception as e:
+            # 실패 시 기본값 저장
+            new_settings['active_start_h'] = 9
+            new_settings['active_end_h'] = 21
         
         # 창 크기 정보 추가
         width = self.settings_window.winfo_width()

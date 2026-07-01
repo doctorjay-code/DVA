@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.6.1"
+VERSION = "v3.7.0"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -78,7 +78,12 @@ class DoctorBillApp:
             'baemin_phone': "",
             'auto_point_payment': False,
             'settings_window_width': 520,
-            'settings_window_height': 950
+            'settings_window_height': 950,
+            'use_active_time_range': False,
+            'active_start_h': 9,
+            'active_start_m': 0,
+            'active_end_h': 21,
+            'active_end_m': 0
         }
         
         # 1. 설정 로드
@@ -88,7 +93,7 @@ class DoctorBillApp:
         self.task_manager = TaskManager()
         
         # 3. UI 생성 및 이벤트 와이어링
-        self.ui = MainWindow(self.root, self.get_callbacks())
+        self.ui = MainWindow(self.root, self.get_callbacks(), version=VERSION)
         
         # 4. 로깅 설정 (내부 로거를 UI 창으로 연결)
         self.setup_logging()

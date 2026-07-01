@@ -9,14 +9,20 @@ class MainWindow:
     메인 애플리케이션 창 레이아웃을 구성하는 프레임워크 클래스입니다.
     여러 UI 컴포넌트(UserDashboard, WorkLogPanel, SeminarPanel)를 조립합니다.
     """
-    def __init__(self, root, callbacks):
+    def __init__(self, root, callbacks, version=None):
         """
         :param root: tk.Tk 또는 tk.Toplevel 인스턴스
         :param callbacks: 버튼 클릭이나 이벤트 처리를 위한 딕셔너리
+        :param version: 프로그램 버전 문자열 (옵션)
         """
         self.root = root
         self.callbacks = callbacks
-        self.root.title("닥터빌 자동화 프로그램")
+        self.version = version
+        
+        import os
+        account_name = os.environ.get('ACCOUNT_NAME', '')
+        title_suffix = f" [{account_name}]" if account_name else ""
+        self.root.title(f"닥터빌 자동화 프로그램 {self.version if self.version else ''}{title_suffix}")
         self.root.geometry("1000x800")
         
         self.setup_ui()
@@ -38,9 +44,14 @@ class MainWindow:
         self.title_frame = tk.Frame(self.main_frame, bg='#f0f0f0')
         self.title_frame.grid(row=0, column=0, sticky='ew', pady=(0, 20))
         
+        import os
+        account_name = os.environ.get('ACCOUNT_NAME', '')
+        title_suffix = f" [{account_name}]" if account_name else ""
+        display_title = f"닥터빌 자동화 프로그램 {self.version if self.version else ''}{title_suffix}"
+        
         self.title_label = tk.Label(
             self.title_frame,
-            text="닥터빌 자동화 프로그램",
+            text=display_title,
             font=("맑은 고딕", 24, "bold"),
             bg='#f0f0f0',
             fg='#2c3e50'
