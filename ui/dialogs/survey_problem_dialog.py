@@ -442,8 +442,9 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
         # 순서가 보장되는 딕셔너리로 교체 후 저장
         problem_manager.quiz_answers = new_answers
         problem_manager.save_quizzes()
-        if gui_logger:
-            gui_logger("↔️ 문제 순서가 변경되어 저장되었습니다.")
+        # 드래그할 때마다 반복되는 로그 출력을 제거하여 로그창 오염 방지
+        # if gui_logger:
+        #     gui_logger("↔️ 문제 순서가 변경되어 저장되었습니다.")
 
     sort_states = {"category": False}
 
@@ -470,6 +471,17 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
         source_item = getattr(tree, 'drag_item', None)
         
         if source_item and target_item and source_item != target_item:
+            # 드래그 앤 드롭 시 카테고리가 다른 영역으로의 이동을 방지
+            source_values = tree.item(source_item).get('values', [])
+            target_values = tree.item(target_item).get('values', [])
+            
+            if source_values and target_values:
+                source_cat = source_values[0]
+                target_cat = target_values[0]
+                if source_cat != target_cat:
+                    tree.drag_item = None
+                    return
+
             # 타겟 위치 확인 (위에 놓는지 아래에 놓는지)
             target_idx = tree.index(target_item)
             tree.move(source_item, '', target_idx)

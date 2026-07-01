@@ -355,7 +355,8 @@ def open_quiz_manager(parent_window, gui_logger=None, initial_question=None, ini
                 new_db[orig] = all_q[orig]
         problem_manager.quiz_answers = new_db
         problem_manager.save_quizzes()
-        if gui_logger: gui_logger("↔️ 퀴즈 순서가 저장되었습니다.")
+        # 불필요한 로그 출력 제거
+        # if gui_logger: gui_logger("↔️ 퀴즈 순서가 저장되었습니다.")
 
     def on_drag_start(event):
         item = tree.identify_row(event.y)
@@ -365,6 +366,17 @@ def open_quiz_manager(parent_window, gui_logger=None, initial_question=None, ini
         target = tree.identify_row(event.y)
         source = getattr(tree, 'drag_item', None)
         if source and target and source != target:
+            # 드래그 앤 드롭 시 카테고리가 다른 영역으로의 이동을 방지
+            source_values = tree.item(source).get('values', [])
+            target_values = tree.item(target).get('values', [])
+            
+            if source_values and target_values:
+                source_cat = source_values[0]
+                target_cat = target_values[0]
+                if source_cat != target_cat:
+                    tree.drag_item = None
+                    return
+
             idx = tree.index(target)
             tree.move(source, '', idx)
             save_order()
