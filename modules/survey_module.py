@@ -459,11 +459,9 @@ class SurveyModule(BaseModule):
                 
                 # [카카오톡 알림 전송] 
                 if hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks:
-                    # 질문 텍스트가 너무 길면 말줄임표 처리 (가독성 확보)
-                    short_q = question_text[:60] + "..." if len(question_text) > 60 else question_text
                     kakao_msg = (
                         f"[설문 주관식 작성]\n"
-                        f"Q: {short_q}\n"
+                        f"Q: {question_text}\n"
                         f"A: {answer}"
                     )
                     sent = self.gui_callbacks['notify_kakao'](kakao_msg, cat="notify_subjective_answer")
@@ -1558,6 +1556,15 @@ class SurveyModule(BaseModule):
                                             
                                         # 람다 함수로 인수 전달 (이미지 없이 정보만 전달)
                                         gui.root.after(0, lambda q=display_question, c=category: gui.open_survey_problem(initial_question=q, initial_category=c, image_path=None))
+                                        
+                                        # 카카오톡 알림 전송 (최초 1회)
+                                        if hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks:
+                                            kakao_msg = (
+                                                f"⚠️ [세미나 퀴즈 정답 미등록]\n"
+                                                f"문제 {question_number}번 정답이 등록되어 있지 않아 대기 중입니다. 프로그램을 확인해 주세요.\n"
+                                                f"Q: {display_question}"
+                                            )
+                                            self.gui_callbacks['notify_kakao'](kakao_msg, cat="notify_survey")
                                         
                                         # 정답이 새로 등록될 때까지 대기
                                         self.log_info(f"⌛ 문제 {question_number}번 정답이 등록될 때까지 대기합니다...")
