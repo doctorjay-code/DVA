@@ -1615,12 +1615,14 @@ class SurveyModule(BaseModule):
                                             try:
                                                 option_text = self._get_radio_label_text(radio)
                                                 if option_text and (answer_value.upper() in option_text.upper() or option_text.upper() in answer_value.upper()):
-                                                    if not radio.is_selected():
-                                                        radio.click()
-                                                        self.log_success(f"문제 {question_number}번: 퀴즈 정답 텍스트 '{answer_value}' 선택 완료")
-                                                        question_processed = True
-                                                        radio_selected = True
-                                                    break
+                                                     if not radio.is_selected():
+                                                         radio.click()
+                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 텍스트 '{answer_value}' 선택 완료")
+                                                     else:
+                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 텍스트 '{answer_value}' 이미 선택되어 있음")
+                                                     question_processed = True
+                                                     radio_selected = True
+                                                     break
                                             except:
                                                 continue
                                                 
@@ -1642,11 +1644,13 @@ class SurveyModule(BaseModule):
                                                 except Exception as e:
                                                     self.log_warning(f"보기 텍스트 자동 업데이트 실패: {str(e)}")
                                                     
-                                                if not target_radio.is_selected():
-                                                    target_radio.click()
-                                                    self.log_info(f"문제 {question_number}번: 퀴즈 정답 번호 {target_num}번 선택")
-                                                    question_processed = True
-                                                    radio_selected = True
+                                                 if not target_radio.is_selected():
+                                                     target_radio.click()
+                                                     self.log_success(f"문제 {question_number}번: 퀴즈 정답 번호 {target_num}번 선택 완료")
+                                                 else:
+                                                     self.log_success(f"문제 {question_number}번: 퀴즈 정답 번호 {target_num}번 이미 선택되어 있음")
+                                                 question_processed = True
+                                                 radio_selected = True
                                     
                                     # 정답을 찾지 못한 경우 첫 번째 선택
                                     if not radio_selected:

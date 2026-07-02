@@ -262,7 +262,8 @@ class SurveyProblemManager:
         cleaned = question.replace("[퀴즈]", "").strip()
         
         # 선행 숫자 및 기호 제거 (예: "1. ", "Q1. ", "① ")
-        cleaned = re.sub(r'^(?:Q?\d+[\.\s:]*|[①-⑨]\s*)', '', cleaned).strip()
+        # 숫자 뒤에 분리 기호가 1개 이상 있을 때만 제거하도록 제한하여 '3제 이상의...'에서 '3'이 지워지는 버그를 방지합니다.
+        cleaned = re.sub(r'^(?:Q?\d+[\.\s:]+|[①-⑨]\s*)', '', cleaned).strip()
         
         # 후행 특수문자 제거 (*, ?, 숫자 옆의 특수문자 등)
         # 문제 끝의 *, ?, 공백 제거
