@@ -707,7 +707,19 @@ class TaskManager:
                     
                     # 결과 목록 추출
                     current_seminars = seminars_res.get('data', []) if isinstance(seminars_res, dict) else seminars_res
-                    current_titles = {s.get('title', '') for s in current_seminars if s.get('title')}
+                    
+                    from modules.utils import get_status_tag
+                    current_titles = set()
+                    for s in current_seminars:
+                        title = s.get('title', '')
+                        status = s.get('status', '')
+                        if title:
+                            tag = get_status_tag(status)
+                            status_lower = status.lower()
+                            # 설문참여, 종료, 결과확인, 상세보기 등 이미 방송이 종료된 상태는 제외 (이들을 종료로 감지하기 위함)
+                            is_ended = (tag == '기타') or any(kw in status_lower for kw in ['설문', '종료', '결과', '상세'])
+                            if not is_ended:
+                                current_titles.add(title)
     
                     # [추가] 자동 설문 트리거 로직: 세미나 종료 감지
                     if active_settings and active_settings.get('auto_survey'):
@@ -716,7 +728,9 @@ class TaskManager:
                             ended_seminars = self.state._previous_seminar_titles - current_titles
                             if ended_seminars:
                                 self.logger.info(f"세미나 종료 감지: {ended_seminars}")
-                                gui_callbacks['log_message'](f"📢 세미나 종료 감지: {list(ended_seminars)[0]} 외 {len(ended_seminars)-1}건" if len(ended_seminars) > 1 else f"📢 세미나 종료 감지: {list(ended_seminars)[0]}")
+                                msg = f"📢 세미나 종료 감지: {list(ended_seminars)[0]} 외 {len(ended_seminars)-1}건" if len(ended_seminars) > 1 else f"📢 세미나 종료 감지: {list(ended_seminars)[0]}"
+                                gui_callbacks['log_message'](msg)
+                                self.notifier.send_kakao_message(msg, category="notify_survey")
                                 
                                 # 최근 종료 세미나 목록 업데이트
                                 if hasattr(self.state, '_recently_ended_seminars'):

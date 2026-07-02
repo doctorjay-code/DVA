@@ -41,6 +41,17 @@ class SurveyModule(BaseModule):
         super().__init__(web_automation, gui_logger)
         self.problem_manager = SurveyProblemManager()
 
+    def _get_circled_number(self, num):
+        try:
+            val = int(num)
+            circled_numbers = {
+                1: "①", 2: "②", 3: "③", 4: "④", 5: "⑤",
+                6: "⑥", 7: "⑦", 8: "⑧", 9: "⑨", 10: "⑩"
+            }
+            return circled_numbers.get(val, f"[{val}]")
+        except:
+            return f"[{num}]" 
+
     def _get_radio_label_text(self, radio):
         """라디오 버튼 인접 노드에서 실제 보기 텍스트를 추출하는 JS 헬퍼"""
         js_script = """
@@ -1617,9 +1628,9 @@ class SurveyModule(BaseModule):
                                                 if option_text and (answer_value.upper() in option_text.upper() or option_text.upper() in answer_value.upper()):
                                                      if not radio.is_selected():
                                                          radio.click()
-                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 텍스트 '{answer_value}' 선택 완료")
+                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(idx + 1)}\" 텍스트 '{answer_value}' 선택 완료")
                                                      else:
-                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 텍스트 '{answer_value}' 이미 선택되어 있음")
+                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(idx + 1)}\" 텍스트 '{answer_value}' 이미 선택되어 있음")
                                                      question_processed = True
                                                      radio_selected = True
                                                      break
@@ -1634,6 +1645,7 @@ class SurveyModule(BaseModule):
                                             if 1 <= answer_num <= len(radios):
                                                 target_radio = radios[answer_num - 1]
                                                 
+                                                option_text = ""
                                                 # 풀면서 정답 텍스트를 구하여 DB에 자동 업데이트(마이그레이션)
                                                 try:
                                                     option_text = self._get_radio_label_text(target_radio)
@@ -1644,13 +1656,15 @@ class SurveyModule(BaseModule):
                                                 except Exception as e:
                                                     self.log_warning(f"보기 텍스트 자동 업데이트 실패: {str(e)}")
                                                     
-                                                 if not target_radio.is_selected():
-                                                     target_radio.click()
-                                                     self.log_success(f"문제 {question_number}번: 퀴즈 정답 번호 {target_num}번 선택 완료")
-                                                 else:
-                                                     self.log_success(f"문제 {question_number}번: 퀴즈 정답 번호 {target_num}번 이미 선택되어 있음")
-                                                 question_processed = True
-                                                 radio_selected = True
+                                                if not target_radio.is_selected():
+                                                    target_radio.click()
+                                                    opt_msg = f" 텍스트 '{option_text}'" if option_text else ""
+                                                    self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(target_num)}\"{opt_msg} 선택 완료")
+                                                else:
+                                                    opt_msg = f" 텍스트 '{option_text}'" if option_text else ""
+                                                    self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(target_num)}\"{opt_msg} 이미 선택되어 있음")
+                                                question_processed = True
+                                                radio_selected = True
                                     
                                     # 정답을 찾지 못한 경우 첫 번째 선택
                                     if not radio_selected:
