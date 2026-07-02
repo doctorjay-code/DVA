@@ -20,7 +20,8 @@ ATTEND_BUTTON_CLASS = "point_down"
 SUCCESS_POPUP_ID = "popSuccessArea"
 
 # 대기 시간 상수 정의
-DEFAULT_IMPLICIT_WAIT = 5
+BUTTON_WAIT_TIMEOUT = 10  # 버튼 렌더링 대기 (JS 로딩 고려)
+POPUP_WAIT_TIMEOUT = 5    # 성공 팝업 대기
 
 # 에러 메시지 상수 정의
 ERROR_WEBDRIVER_NOT_INITIALIZED = "웹드라이버가 초기화되지 않았습니다."
@@ -34,7 +35,6 @@ class AttendanceModule(BaseModule):
     
     def execute(self):
         """출석 체크 페이지로 이동하고 포인트 받기 버튼 클릭"""
-        """출석 체크 작업 실행"""
         is_success = False
         result_msg = ""
         
@@ -45,13 +45,24 @@ class AttendanceModule(BaseModule):
             self._navigate_to_attendance_page()
             
             # 출석 버튼 클릭 시도
-            if self.click_attend_button():
+            # True  = 버튼을 찾아서 클릭 성공
+            # None  = 버튼 없음 (이미 출석 완료 상태)
+            # False = 클릭 중 오류
+            clicked = self.click_attend_button()
+            
+            if clicked is True:
                 is_success = True
                 result_msg = MSG_ATTENDANCE_SUCCESS
-            else:
+            elif clicked is None:
+                # 버튼이 없음 = 이미 출석 완료 상태
                 is_success = True
                 result_msg = MSG_ATTENDANCE_ALREADY
                 self.log_info(result_msg)
+            else:
+                # False = 클릭 중 오류 발생
+                is_success = False
+                result_msg = "출석 체크 버튼 클릭 실패"
+                self.log_error(result_msg)
             
         except Exception as e:
             is_success = False
@@ -64,6 +75,7 @@ class AttendanceModule(BaseModule):
         """출석 체크 페이지로 이동"""
         try:
             self.web_automation.driver.get(ATTENDANCE_PAGE_URL)
+            # body 태그 대기 (기본 로딩 확인)
             self.web_automation.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
             self.log_info("출석 체크 페이지 로딩 완료")
             return True
@@ -72,53 +84,51 @@ class AttendanceModule(BaseModule):
             return False
     
     def click_attend_button(self):
-        """출석하기 버튼 클릭 또는 이미 완료된 경우 확인"""
+        """출석하기 버튼 클릭.
+        
+        Returns:
+            True  : 버튼을 찾아 클릭 성공
+            None  : 버튼 없음 (이미 출석 완료 상태)
+            False : 예외 발생으로 실패
+        """
         try:
             self.log_info("출석하기 버튼 찾는 중...")
             
-            # 암시적 대기를 일시적으로 0으로 설정 (즉시 검색)
-            self.web_automation.driver.implicitly_wait(0)
-            
+            # [수정] implicitly_wait(0)+find_elements 제거
+            # → EC.element_to_be_clickable으로 명시적 대기
+            # 버튼은 JS로 렌더링되므로 body만 기다리면 아직 없을 수 있음
             try:
-                # 출석하기 버튼을 즉시 탐색 (이미 출석한 경우를 위해 0초 대기)
-                # find_elements는 숨겨진 요소도 포함하므로 가시성 체크가 필요함
-                all_buttons = self.web_automation.driver.find_elements(By.CLASS_NAME, ATTEND_BUTTON_CLASS)
+                button = WebDriverWait(self.web_automation.driver, BUTTON_WAIT_TIMEOUT).until(
+                    EC.element_to_be_clickable((By.CLASS_NAME, ATTEND_BUTTON_CLASS))
+                )
+                self.log_info("출석하기 버튼 발견")
                 
-                # 실제로 화면에 보이는 버튼만 필터링
-                visible_buttons = [btn for btn in all_buttons if btn.is_displayed()]
+                # 버튼 클릭
+                button.click()
+                self.log_info("출석하기 버튼 클릭 완료")
                 
-                if visible_buttons:
-                    button = visible_buttons[0]
-                    self.log_info("출석하기 버튼 발견")
-                    
-                    # 버튼 클릭
-                    button.click()
-                    self.log_info("출석하기 버튼 클릭 완료")
-                    
-                    # 성공 팝업 확인
-                    self._check_success_popup()
-                else:
-                    self.log_info("출석하기 버튼이 없거나 이미 숨겨져 있습니다. (출석 완료 상태)")
+                # 성공 팝업 확인
+                self._check_success_popup()
+                return True  # 클릭 성공
                 
-                return True
-                
-            except Exception as e:
-                # 버튼을 찾는 과정이 아닌 클릭 등 다른 과정에서 오류가 발생한 경우
-                self.log_error(f"출석 작업 중 오류: {str(e)}")
-                return True # 포인트 확인으로 넘어가기 위해 True 반환
-            finally:
-                # 원래 암시적 대기 시간으로 복원
-                self.web_automation.driver.implicitly_wait(DEFAULT_IMPLICIT_WAIT)
+            except TimeoutException:
+                # 10초 내 버튼이 나타나지 않음 = 이미 출석 완료 상태로 판단
+                self.log_info("출석하기 버튼이 나타나지 않았습니다. (이미 출석 완료 상태)")
+                return None  # 버튼 없음 (이미 완료)
             
         except Exception as e:
             self.log_error(f"{ERROR_ATTEND_BUTTON_CLICK}: {str(e)}")
-            return False
+            return False  # 예외 발생 = 실패
     
     def _check_success_popup(self):
-        """성공 팝업 확인"""
+        """성공 팝업 확인 - presence_of_element_located만 사용하여 빠르게 확인"""
         try:
-            self.find_element_safe(By.ID, SUCCESS_POPUP_ID, timeout=5)
+            WebDriverWait(self.web_automation.driver, POPUP_WAIT_TIMEOUT).until(
+                EC.presence_of_element_located((By.ID, SUCCESS_POPUP_ID))
+            )
             self.log_info("출석 체크 성공! 포인트가 적립되었습니다.")
+        except TimeoutException:
+            self.log_info("출석 체크 완료 (성공 팝업 미감지 - 이미 완료 상태일 수 있음)")
         except Exception:
             self.log_info("출석 체크 완료 (성공 팝업 확인 불가)")
     

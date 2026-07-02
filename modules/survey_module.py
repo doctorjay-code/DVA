@@ -516,6 +516,9 @@ class SurveyModule(BaseModule):
     def execute(self, target_url=None, target_title=None, skip_urls=None):
         """세미나 풀이 페이지로 이동하고 첫 번째 세미나 자동 선택"""
         original_window = None
+        self._current_survey_answers = [] # 퀴즈 정답 저장 리스트 초기화
+        self._quiz_kakao_sent = False      # 퀴즈 정답 카톡 알림 전송 여부 초기화
+
         try:
             # 중복 실행 방지
             with SurveyModule._lock:
@@ -627,8 +630,13 @@ class SurveyModule(BaseModule):
                         target['reason'] = 'success'
                         quiz_result = res.get('quiz_result') if isinstance(res, dict) else None
                         success_msg = f"설문 참여 성공: {target['title']}"
+                        # 퀴즈 정답은 이미 중간에 카톡으로 전송됐으면 중복 포함 생략
+                        if hasattr(self, '_current_survey_answers') and self._current_survey_answers and not getattr(self, '_quiz_kakao_sent', False):
+                            answers_str = "\n".join(self._current_survey_answers)
+                            success_msg += f"\n\n{answers_str}"
                         if quiz_result:
                             success_msg += f"\n👉 {quiz_result}"
+
                             
                         self.log_success(f"✅ {success_msg}")
                         
@@ -976,7 +984,17 @@ class SurveyModule(BaseModule):
                 
                 self.log_info(f"{page_count}페이지 답변 완료")
                 
-                # 페이지 하단 버튼 확인
+                # 🔔 퀴즈 정답 선택 완료 → 주관식(Gemini) 처리 전에 카톡 알림 전송
+                if (hasattr(self, '_current_survey_answers') and self._current_survey_answers
+                        and hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks
+                        and not getattr(self, '_quiz_kakao_sent', False)):
+                    answers_str = "\n".join(self._current_survey_answers)
+                    kakao_msg = f"✅ [퀴즈 정답 선택 완료]\n{answers_str}"
+                    self.gui_callbacks['notify_kakao'](kakao_msg, cat="notify_survey")
+                    self._quiz_kakao_sent = True
+                    self.log_info("📱 [카카오] 퀴즈 정답 알림 전송 완료")
+                
+
                 try:
                     footer_button = self.find_element_safe(
                         By.CSS_SELECTOR, 
@@ -1628,9 +1646,13 @@ class SurveyModule(BaseModule):
                                                 if option_text and (answer_value.upper() in option_text.upper() or option_text.upper() in answer_value.upper()):
                                                      if not radio.is_selected():
                                                          radio.click()
-                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(idx + 1)}\" 텍스트 '{answer_value}' 선택 완료")
+                                                         circled_num = self._get_circled_number(idx + 1)
+                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{circled_num}\" 텍스트 '{answer_value}' 선택 완료")
+                                                         if hasattr(self, "_current_survey_answers"): self._current_survey_answers.append(f"✅ 문제 {question_number}번: 퀴즈 정답 \"{circled_num}\"")
                                                      else:
-                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(idx + 1)}\" 텍스트 '{answer_value}' 이미 선택되어 있음")
+                                                         circled_num = self._get_circled_number(idx + 1)
+                                                         self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{circled_num}\" 텍스트 '{answer_value}' 이미 선택되어 있음")
+                                                         if hasattr(self, "_current_survey_answers"): self._current_survey_answers.append(f"✅ 문제 {question_number}번: 퀴즈 정답 \"{circled_num}\"")
                                                      question_processed = True
                                                      radio_selected = True
                                                      break
@@ -1656,13 +1678,16 @@ class SurveyModule(BaseModule):
                                                 except Exception as e:
                                                     self.log_warning(f"보기 텍스트 자동 업데이트 실패: {str(e)}")
                                                     
+                                                circled_num = self._get_circled_number(target_num)
                                                 if not target_radio.is_selected():
                                                     target_radio.click()
                                                     opt_msg = f" 텍스트 '{option_text}'" if option_text else ""
-                                                    self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(target_num)}\"{opt_msg} 선택 완료")
+                                                    self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{circled_num}\"{opt_msg} 선택 완료")
                                                 else:
                                                     opt_msg = f" 텍스트 '{option_text}'" if option_text else ""
-                                                    self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{self._get_circled_number(target_num)}\"{opt_msg} 이미 선택되어 있음")
+                                                    self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{circled_num}\"{opt_msg} 이미 선택되어 있음")
+                                                if hasattr(self, '_current_survey_answers'):
+                                                    self._current_survey_answers.append(f"✅ 문제 {question_number}번: 퀴즈 정답 \"{circled_num}\"")
                                                 question_processed = True
                                                 radio_selected = True
                                     

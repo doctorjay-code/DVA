@@ -541,6 +541,27 @@ class TaskManager:
         """퀴즈 풀기 실행"""
         # 설정 기반으로 모듈 실행 (하드코딩 제거)
         return self.execute_module_by_config('quiz', gui_callbacks)
+
+    def execute_attendance_then_quiz(self, gui_callbacks):
+        """출석체크 완료 후 퀴즈 풀기를 순차적으로 실행합니다.
+        출석체크와 퀴즈 예약 시간이 같을 때 경쟁 조건을 방지하기 위해 사용합니다."""
+        def _sequential_task():
+            try:
+                # 1단계: 출석 체크 동기 실행
+                attendance_class = self.get_module_class('attendance')
+                self.execute_module_safely(attendance_class, '출석 체크', gui_callbacks)
+            except Exception as e:
+                self.logger.error(f"순차 실행 중 출석체크 오류: {e}")
+            finally:
+                # 2단계: 퀴즈 풀기 동기 실행 (출석체크 성공 여부와 관계없이)
+                try:
+                    quiz_class = self.get_module_class('quiz')
+                    self.execute_module_safely(quiz_class, '퀴즈 풀이', gui_callbacks)
+                except Exception as e:
+                    self.logger.error(f"순차 실행 중 퀴즈 오류: {e}")
+
+        threading.Thread(target=_sequential_task, daemon=True).start()
+        return True
     
     def execute_survey(self, gui_callbacks, target_url=None, target_title=None):
         """세미나 풀이 실행"""
@@ -1173,36 +1194,49 @@ class TaskManager:
             today = now.date()
             
             # 1. 자동 출석 체크 체크
+            attendance_due = False
+            quiz_due = False
+
             if settings.get('auto_attendance') and self.state.last_auto_attendance_date != today:
-                sch_hour = settings.get('auto_attendance_hour')
-                sch_min = settings.get('auto_attendance_min')
-                
-                # 예약 시간 (오늘)
-                scheduled_time = now.replace(hour=sch_hour, minute=sch_min, second=0, microsecond=0)
-                
-                # 현재 시간이 예약 시간 이후이고, 프로그램 시작 시간 이후인 경우에만 실행
-                if now >= scheduled_time and scheduled_time >= self.state.startup_time:
-                    gui_callbacks['log_message'](f"⏰ 예약된 자동 출석 체크를 시작합니다. (설정시간: {sch_hour:02d}:{sch_min:02d})")
-                    gui_callbacks['update_status']("자동 출석 체크 중...")
-                    self.execute_attendance(gui_callbacks)
-                    self.state.last_auto_attendance_date = today
-                    return True
+                att_hour = settings.get('auto_attendance_hour')
+                att_min = settings.get('auto_attendance_min')
+                att_scheduled = now.replace(hour=att_hour, minute=att_min, second=0, microsecond=0)
+                if now >= att_scheduled and att_scheduled >= self.state.startup_time:
+                    attendance_due = True
 
             # 2. 자동 퀴즈 풀이 체크
             if settings.get('auto_quiz') and self.state.last_auto_quiz_date != today:
-                sch_hour = settings.get('auto_quiz_hour')
-                sch_min = settings.get('auto_quiz_min')
-                
-                # 예약 시간 (오늘)
-                scheduled_time = now.replace(hour=sch_hour, minute=sch_min, second=0, microsecond=0)
-                
-                # 현재 시간이 예약 시간 이후이고, 프로그램 시작 시간 이후인 경우에만 실행
-                if now >= scheduled_time and scheduled_time >= self.state.startup_time:
-                    gui_callbacks['log_message'](f"⏰ 예약된 자동 퀴즈 풀이를 시작합니다. (설정시간: {sch_hour:02d}:{sch_min:02d})")
-                    gui_callbacks['update_status']("자동 퀴즈 풀이 중...")
-                    self.execute_quiz(gui_callbacks)
-                    self.state.last_auto_quiz_date = today
-                    return True
+                quiz_hour = settings.get('auto_quiz_hour')
+                quiz_min = settings.get('auto_quiz_min')
+                quiz_scheduled = now.replace(hour=quiz_hour, minute=quiz_min, second=0, microsecond=0)
+                if now >= quiz_scheduled and quiz_scheduled >= self.state.startup_time:
+                    quiz_due = True
+
+            # 출석체크와 퀴즈가 동시에 예약된 경우 → 순차 실행 (경쟁 조건 방지)
+            if attendance_due and quiz_due:
+                gui_callbacks['log_message'](f"⏰ 예약된 자동 출석 체크를 시작합니다. (설정시간: {att_hour:02d}:{att_min:02d})")
+                gui_callbacks['log_message'](f"⏰ 예약된 자동 퀴즈 풀이를 시작합니다. (설정시간: {quiz_hour:02d}:{quiz_min:02d})")
+                gui_callbacks['update_status']("자동 출석 체크 → 퀴즈 풀이 순차 실행 중...")
+                self.execute_attendance_then_quiz(gui_callbacks)
+                self.state.last_auto_attendance_date = today
+                self.state.last_auto_quiz_date = today
+                return True
+
+            # 출석체크만 예약된 경우
+            if attendance_due:
+                gui_callbacks['log_message'](f"⏰ 예약된 자동 출석 체크를 시작합니다. (설정시간: {att_hour:02d}:{att_min:02d})")
+                gui_callbacks['update_status']("자동 출석 체크 중...")
+                self.execute_attendance(gui_callbacks)
+                self.state.last_auto_attendance_date = today
+                return True
+
+            # 퀴즈만 예약된 경우
+            if quiz_due:
+                gui_callbacks['log_message'](f"⏰ 예약된 자동 퀴즈 풀이를 시작합니다. (설정시간: {quiz_hour:02d}:{quiz_min:02d})")
+                gui_callbacks['update_status']("자동 퀴즈 풀이 중...")
+                self.execute_quiz(gui_callbacks)
+                self.state.last_auto_quiz_date = today
+                return True
             
             # 3. 자동 세미나 새로고침 체크
             if settings.get('auto_seminar_refresh') and not getattr(self.state, 'is_seminar_refresh_paused', False):
