@@ -81,6 +81,19 @@ class WebAutomation:
             elif "Unable to obtain driver" in error_msg:
                 self.logger.warning("ChromeDriver 파일 없음 감지 - 자동 다운로드 시작...")
                 need_update = True
+            elif "chromedriver" in error_msg.lower() and (
+                "cannot find" in error_msg.lower()
+                or "no such file" in error_msg.lower()
+                or "does not exist" in error_msg.lower()
+                or "not found" in error_msg.lower()
+                or "executable needs to be in path" in error_msg.lower()
+                or "filenotfounderror" in error_msg.lower()
+            ):
+                self.logger.warning("ChromeDriver 파일 없음 감지 - 자동 다운로드 시작...")
+                need_update = True
+            elif not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromedriver.exe")):
+                self.logger.warning("chromedriver.exe 파일이 없습니다 - 자동 다운로드 시작...")
+                need_update = True
             
             if need_update:
                 # 2단계: webdriver-manager로 최신 버전 다운로드 & 교체
@@ -130,6 +143,11 @@ class WebAutomation:
         # 로커 파일 핸들러 제거 (Root Logger가 처리)
         # 로컬 ChromeDriver 사용
         chromedriver_path = os.path.join(current_dir, "chromedriver.exe")
+        
+        # 파일 존재 여부 먼저 확인
+        if not os.path.exists(chromedriver_path):
+            raise FileNotFoundError(f"chromedriver.exe not found: {chromedriver_path}")
+        
         service = Service(chromedriver_path)
         
         # 웹드라이버 생성
