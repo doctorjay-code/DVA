@@ -25,7 +25,7 @@ VOD_LIST_PAGE_URL = "https://www.doctorville.co.kr/seminar/seminarVodReplayList?
 LIVE_LIST_CONTAINER_SELECTOR = ".live_list .list_cont"
 FIRST_SEMINAR_LINK_SELECTOR = ".live_list .list_cont:first-child a.list_detail"
 SEMINAR_TITLE_SELECTOR = ".tit"
-REENTER_BUTTON_SELECTOR = ".btn_bn.btn_enter.btn_seminar_agree"
+REENTER_BUTTON_SELECTOR = ".btn_bn.btn_enter.btn_seminar_agree, a.btn_bn.btn_enter[onclick*='playOnPopup']"
 
 # 에러 메시지 상수 정의
 ERROR_FIRST_SEMINAR_SELECTION = "첫 번째 세미나 자동 선택 실패"
@@ -607,7 +607,7 @@ class SurveyModule(BaseModule):
                     
                     # 상세 페이지로 직접 이동
                     self.web_automation.driver.get(target['url'])
-                    time.sleep(0.5)
+                    time.sleep(2.0)
 
                     # 재입장하기 버튼 확인 및 처리
                     res = self.auto_click_reenter_button(target['title'])
@@ -740,7 +740,7 @@ class SurveyModule(BaseModule):
             # 재입장하기 버튼이 있는지 먼저 확인
             try:
                 # find_element_safe를 사용하여 짧은 타임아웃으로 확인
-                reenter_button = self.find_element_safe(By.CSS_SELECTOR, REENTER_BUTTON_SELECTOR, timeout=1)
+                reenter_button = self.find_element_safe(By.CSS_SELECTOR, REENTER_BUTTON_SELECTOR, timeout=5)
                 
                 self.log_info("재입장하기 버튼 발견")
                 
