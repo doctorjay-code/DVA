@@ -117,7 +117,7 @@ class SeminarModule(BaseModule):
     def get_seminar_list(self):
         """세미나 목록 데이터 가져오기"""
         if not self.navigate_to_seminar_main():
-            return []
+            return None
         return self._collect_with_js()
 
     def _collect_with_js(self):
@@ -145,7 +145,9 @@ class SeminarModule(BaseModule):
                     parent = item.find_element(By.XPATH, "./ancestor::div[contains(@class, 'list_cont')]")
                     seminars.append(self._extract_seminar_data(item, parent))
                 except Exception: continue
-        except Exception: pass
+        except Exception as e:
+            self.log_error(f"Fallback 수집 중 오류: {str(e)}")
+            return None
         return seminars
 
     def _extract_seminar_data(self, item, parent):

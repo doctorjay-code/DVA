@@ -1062,7 +1062,7 @@ class SettingsDialog:
 
         # 브라우저 설정 섹션
         browser_frame = tk.LabelFrame(
-            parent, text="🌐 브라우저 설정", font=("맑은 고딕", 12, "bold"),
+            parent, text="🌐 브라우저 및 업데이트 설정", font=("맑은 고딕", 12, "bold"),
             bg='#f0f0f0', fg='#2c3e50', padx=10, pady=5
         )
         browser_frame.pack(fill='x', pady=(0, 10))
@@ -1082,6 +1082,22 @@ class SettingsDialog:
         ).pack(anchor='w', pady=(0, 5), padx=25)
         
         ToolTip(headless_check, "크롬 창을 띄우지 않고 백그라운드에서 작업을 수행합니다.\n체크하면 작업 중 컴퓨터 사용이 더 편리해집니다.", delay=500)
+
+        # 1시간 주기 자동 업데이트
+        self.setting_vars['auto_update_check'] = tk.BooleanVar(value=self.get_setting('auto_update_check'))
+        update_check = tk.Checkbutton(
+            browser_frame, text="🔄 1시간 주기 자동 업데이트", variable=self.setting_vars['auto_update_check'],
+            font=("맑은 고딕", 11), bg='#f0f0f0', fg='#2c3e50',
+            activebackground='#f0f0f0', activeforeground='#2c3e50'
+        )
+        update_check.pack(anchor='w', pady=(5, 0))
+        
+        tk.Label(
+            browser_frame, text="  └ 1시간마다 프로그램 업데이트 여부를 확인하여 자동으로 업데이트합니다.",
+            font=("맑은 고딕", 9), bg='#f0f0f0', fg='#7f8c8d'
+        ).pack(anchor='w', pady=(0, 5), padx=25)
+        
+        ToolTip(update_check, "1시간 주기로 새로운 프로그램 버전이 배포되었는지 검사하고,\n유휴 상태일 때 무중단으로 자동 업데이트를 실행합니다.", delay=500)
 
         ToolTip(headless_check, "크롬 창을 띄우지 않고 백그라운드에서 작업을 수행합니다.\n체크하면 작업 중 컴퓨터 사용이 더 편리해집니다.", delay=500)
 

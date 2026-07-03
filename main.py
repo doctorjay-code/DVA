@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.7.8"
+VERSION = "v3.7.9"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -83,7 +83,8 @@ class DoctorBillApp:
             'active_start_h': 9,
             'active_start_m': 0,
             'active_end_h': 21,
-            'active_end_m': 0
+            'active_end_m': 0,
+            'auto_update_check': True
         }
         
         # 1. 설정 로드
@@ -99,6 +100,7 @@ class DoctorBillApp:
         self.setup_logging()
         
         self.update_check_completed = False
+        self.last_auto_update_check_time = datetime.now()
 
         # 5. 초기 작업 스케줄링 및 트레이 설정
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -783,14 +785,15 @@ class DoctorBillApp:
                 except Exception:
                     pass
 
-    def check_for_updates(self):
+    def check_for_updates(self, is_auto=False):
         """업데이트 확인 로직 (백그라운드 스레드)"""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         
         # 💡 개발자 모드 감지 (.git 폴더가 존재할 경우 업데이트 체크 생략)
         if os.path.exists(os.path.join(base_dir, ".git")):
-            self.root.after(0, lambda: self.log_message("[시스템] 개발자 모드 감지: 업데이트 검사를 생략합니다."))
-            self.root.after(0, self.complete_update_check_and_login)
+            if not is_auto:
+                self.root.after(0, lambda: self.log_message("[시스템] 개발자 모드 감지: 업데이트 검사를 생략합니다."))
+                self.root.after(0, self.complete_update_check_and_login)
             return
             
         version_file = os.path.join(base_dir, "data", "version.json")
@@ -807,13 +810,15 @@ class DoctorBillApp:
                 remote_sha = response.json().get("sha")
         except Exception as e:
             # 네트워크 오류, 타임아웃 등
-            self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 실패 (오프라인 모드 / {str(e)})"))
-            self.root.after(0, self.complete_update_check_and_login)
+            if not is_auto:
+                self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 실패 (오프라인 모드 / {str(e)})"))
+                self.root.after(0, self.complete_update_check_and_login)
             return
 
         if not remote_sha:
-            self.root.after(0, lambda: self.log_message("[시스템] 업데이트 확인 실패 (원격 정보를 받아올 수 없습니다.)"))
-            self.root.after(0, self.complete_update_check_and_login)
+            if not is_auto:
+                self.root.after(0, lambda: self.log_message("[시스템] 업데이트 확인 실패 (원격 정보를 받아올 수 없습니다.)"))
+                self.root.after(0, self.complete_update_check_and_login)
             return
 
         # 2. 로컬 SHA 가져오기
@@ -833,17 +838,51 @@ class DoctorBillApp:
                 os.makedirs(os.path.dirname(version_file), exist_ok=True)
                 with open(version_file, "w", encoding="utf-8") as f:
                     json.dump({"latest_commit_sha": remote_sha}, f, indent=4)
-                self.root.after(0, lambda: self.log_message(f"[시스템] 초기 버전 정보 등록 완료: 최신 버전({VERSION})을 사용 중입니다."))
+                if not is_auto:
+                    self.root.after(0, lambda: self.log_message(f"[시스템] 초기 버전 정보 등록 완료: 최신 버전({VERSION})을 사용 중입니다."))
             except Exception:
                 pass
             self.root.after(0, self.complete_update_check_and_login)
         elif local_sha == remote_sha:
             # 최신 버전
-            self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 완료: 최신 버전({VERSION})을 사용 중입니다."))
+            if not is_auto:
+                self.root.after(0, lambda: self.log_message(f"[시스템] 업데이트 확인 완료: 최신 버전({VERSION})을 사용 중입니다."))
             self.root.after(0, self.complete_update_check_and_login)
         else:
             # 업데이트 필요
-            self.root.after(0, lambda: self.prompt_update_execution(remote_sha))
+            if is_auto:
+                self.root.after(0, lambda: self.execute_silent_update(remote_sha))
+            else:
+                self.root.after(0, lambda: self.prompt_update_execution(remote_sha))
+
+    def execute_silent_update(self, remote_sha):
+        """1시간 주기 스캔에서 업데이트 발견 시, 사용자 팝업 없이 즉시 자동 업데이트 및 재기동 수행"""
+        import subprocess
+        import sys
+        
+        # 🚨 [2차 안전 가드] 그 사이에 다른 백그라운드 작업이 시작되었는지 더블 체크
+        if self.task_manager.state.current_module is not None:
+            self.log_message(f"[시스템] 업데이트가 감지되었으나 현재 백그라운드 작업('{self.task_manager.state.current_module}')이 진행 중이므로 업데이트를 10분 후로 연기합니다.")
+            from datetime import timedelta
+            self.last_auto_update_check_time = datetime.now() - timedelta(seconds=3000) # 10분 후 재검사
+            return
+
+        self.log_message("[시스템] 새로운 업데이트가 감지되어 프로그램을 자동 종료하고 업데이트를 실행합니다...")
+        try:
+            # scripts/update_program.py --auto 실행
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            script_path = os.path.join(base_dir, "scripts", "update_program.py")
+            
+            # detached process로 실행하여 부모 프로세스 종료 시에도 독립적으로 살아있게 함
+            subprocess.Popen(
+                [sys.executable, script_path, "--auto"],
+                creationflags=subprocess.DETACHED_PROCESS if os.name == 'nt' else 0,
+                close_fds=True
+            )
+            # 현재 메인 윈도우 안전하게 종료
+            self.on_closing()
+        except Exception as e:
+            self.log_message(f"[시스템] 자동 업데이트 스크립트 실행 실패: {e}")
 
     def prompt_update_execution(self, remote_sha):
         """메인 스레드에서 사용자에게 업데이트 의사를 물어보고 실행"""
@@ -856,6 +895,15 @@ class DoctorBillApp:
             "새로운 업데이트 버전이 존재합니다.\n지금 프로그램을 종료하고 업데이트를 진행하시겠습니까?"
         )
         if answer:
+            # 🚨 [2차 안전 가드] 사용자 응답을 대기하는 동안 백그라운드 작업이 실행되었는지 더블 체크
+            if self.task_manager.state.current_module is not None:
+                messagebox.showwarning(
+                    "업데이트 연기",
+                    f"현재 백그라운드 작업('{self.task_manager.state.current_module}')이 수행 중입니다.\n작업이 모두 끝난 후 다시 시도해 주세요."
+                )
+                self.complete_update_check_and_login()
+                return
+
             self.log_message("[시스템] 프로그램을 종료하고 업데이트를 시작합니다...")
             try:
                 # scripts/update_program.py --auto 실행
@@ -912,6 +960,15 @@ class DoctorBillApp:
         if not getattr(self, 'update_check_completed', False):
             self.root.after(1000, self.check_scheduled_tasks)
             return
+            
+        # 1시간 주기 자동 업데이트 검사
+        now = datetime.now()
+        if self.settings.get('auto_update_check', True) and (now - self.last_auto_update_check_time).total_seconds() >= 3600:
+            # 현재 아무런 모듈도 실행 중이지 않을 때만 자동 업데이트 스캔 진행 (충돌 방지)
+            if self.task_manager.state.current_module is None:
+                self.last_auto_update_check_time = now
+                self.log_message("[시스템] 1시간 주기 자동 업데이트 검사를 백그라운드에서 시작합니다.")
+                threading.Thread(target=self.check_for_updates, kwargs={'is_auto': True}, daemon=True).start()
             
         self.task_manager.check_scheduled_tasks(self.settings, self.get_callbacks())
         # 반복 실행 (1초 간격으로 검사하여 딜레이 최소화)

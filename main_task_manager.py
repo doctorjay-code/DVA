@@ -726,6 +726,11 @@ class TaskManager:
                     gui_callbacks['log_message'](MSG_SEMINAR_REFRESH)
                     seminars_res = seminar.get_seminar_list()
                     
+                    if seminars_res is None:
+                        self.logger.warning("세미나 목록 수집 실패로 인해 종료 감지 로직을 건너뜁니다.")
+                        gui_callbacks['log_message']("⚠️ 세미나 목록 수집 실패 (네트워크/타임아웃 오류). 종료 감지를 생략합니다.")
+                        return
+                    
                     # 결과 목록 추출
                     current_seminars = seminars_res.get('data', []) if isinstance(seminars_res, dict) else seminars_res
                     
