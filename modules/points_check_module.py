@@ -224,8 +224,20 @@ class PointsCheckModule(BaseModule):
             
         except Exception as e:
             self.log_error(f"포인트 페이지 정보 수집 실패: {e}")
+            
+            # 기존 포인트 값 백업 가져오기
+            existing_points = "0"
+            if hasattr(self, 'gui_instance') and self.gui_instance:
+                try:
+                    raw_pts = self.gui_instance.user_info.get('points', '0')
+                    pts_digits = "".join(c for c in str(raw_pts) if c.isdigit())
+                    if pts_digits:
+                        existing_points = f"{int(pts_digits):,}"
+                except Exception as ex_pts:
+                    self.log_warning(f"기존 포인트 값 로드 실패: {ex_pts}")
+                    
             return {
-                'points': "0",
+                'points': existing_points,
                 STATUS_KEY_ATTENDANCE: STATUS_ATTENDANCE_INCOMPLETE,
                 STATUS_KEY_QUIZ: STATUS_QUIZ_INCOMPLETE
             }

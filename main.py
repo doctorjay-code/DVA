@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.8.0"
+VERSION = "v3.8.1"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -174,6 +174,7 @@ class DoctorBillApp:
             'log_and_update_status': self.log_and_update_status,
             'show_seminar_dialog': self.show_seminar_dialog,
             'update_seminar_dialog': self.update_seminar_dialog,
+            'notify_kakao': lambda msg, cat="notify_startup_summary": self.task_manager.notifier.send_kakao_message(msg, category=cat),
             'gui_instance': self
         }
 
@@ -234,27 +235,33 @@ class DoctorBillApp:
 
     def on_baemin_purchase(self, force_refresh=False):
         def reset_module_state():
-            self.task_manager.state.current_module = None
+            self.task_manager.state.current_module = 'baemin_refresh'
             
             # 다이얼로그가 완전히 닫히면 메인 탭으로 포커스를 복구하고 포인트를 비동기로 갱신
             def _restore_and_refresh():
                 try:
-                    state = self.task_manager.state
-                    if state.web_automation and state.web_automation.driver:
-                        driver = state.web_automation.driver
-                        # 메인 탭(첫 번째 탭)으로 전환
-                        if len(driver.window_handles) > 0:
-                            driver.switch_to.window(driver.window_handles[0])
-                            self.log_message("포인트 상태 확인을 위해 메인 탭으로 전환했습니다.")
-                            
-                        # 포인트 갱신 모듈 실행
-                        from modules.points_check_module import PointsCheckModule
-                        points_mod = PointsCheckModule(state.web_automation, self.task_manager.create_gui_logger(self.get_callbacks()))
-                        points_mod.set_callbacks(self.get_callbacks())
-                        points_mod.gui_instance = self
-                        points_mod.execute()
+                    with self.task_manager.browser_lock:
+                        state = self.task_manager.state
+                        if state.web_automation and state.web_automation.driver:
+                            driver = state.web_automation.driver
+                            # 메인 탭(첫 번째 탭)으로 전환
+                            if len(driver.window_handles) > 0:
+                                try:
+                                    driver.switch_to.window(driver.window_handles[0])
+                                    self.log_message("포인트 상태 확인을 위해 메인 탭으로 전환했습니다.")
+                                except Exception as e_sw:
+                                    self.log_message(f"⚠ 탭 전환 오류: {e_sw}")
+                                
+                            # 포인트 갱신 모듈 실행
+                            from modules.points_check_module import PointsCheckModule
+                            points_mod = PointsCheckModule(state.web_automation, self.task_manager.create_gui_logger(self.get_callbacks()))
+                            points_mod.set_callbacks(self.get_callbacks())
+                            points_mod.gui_instance = self
+                            points_mod.execute()
                 except Exception as e:
                     self.log_message(f"⚠ 후속 포인트 갱신 오류 (무시 가능): {e}")
+                finally:
+                    self.task_manager.state.current_module = None
                     
             import threading
             threading.Thread(target=_restore_and_refresh, daemon=True).start()

@@ -241,8 +241,8 @@ class BaeminModule(BaseModule):
             driver = self.web_automation.driver
             main_window = driver.current_window_handle
             
-            self.log_info(f"{product_name} {quantity}개 구매를 시작합니다...")
-            self.log_info("빌마켓으로 이동 중...")
+            self.log_info(f"{coupon_item.get('icon', '🎁')} {product_name} {quantity}개 구매를 시작합니다...")
+            self.log_info("🔄 빌마켓으로 이동 중...")
             
             if "pointUseHistoryList" not in driver.current_url:
                 driver.get(POINTS_PAGE_URL)
@@ -363,8 +363,12 @@ class BaeminModule(BaseModule):
             elif purchase_type == 'cart':
                 # --- 신규 Cart Order (일반 상품) 바로구매 결제 로직 ---
                 product_url = f"https://mcircle.bizmarketb2b.com/Goods/Content.aspx?guid={guid}&catecode=14592&eventuid=21006"
+                
                 driver.get(product_url)
                 time.sleep(3)
+                
+                loop_count = 1
+                qty_to_buy = quantity
                 
                 # 수량 조절 (1보다 크면 조절 시도)
                 if quantity > 1:
@@ -380,141 +384,154 @@ class BaeminModule(BaseModule):
                             self.log_info(f"수량을 {quantity}개(ID: {ea_id})로 변경 완료")
                             time.sleep(1)
                     except Exception as eq:
-                        quantity = 1  # 수량 조절 실패 시 실제 결제 수량은 1개로 진행됨
                         err_msg = str(eq).lower()
                         if "invalid element state" in err_msg or "readonly" in err_msg:
-                            self.log_warning("ℹ 이 상품은 빌마켓 정책상 수량 변경이 불가능한 1개 고정 상품입니다. 1개로 결제를 계속 진행합니다.")
+                            self.log_warning("ℹ 이 상품은 빌마켓 정책상 수량 변경이 불가능한 1개 고정 상품입니다. 1개씩 여러 번 결제합니다.")
                         else:
-                            self.log_warning(f"상세페이지 수량 변경 실패, 기본으로 계속 진행: {eq}")
+                            self.log_warning(f"상세페이지 수량 변경 실패, 1개씩 여러 번 결제합니다: {eq}")
+                        loop_count = quantity
+                        qty_to_buy = 1
                 
-                self.log_info("바로구매 버튼 실행...")
-                driver.execute_script("GoodsContent.CartInsert('D')")
-                time.sleep(4)
+                final_res = None
+                for step in range(loop_count):
+                    is_last = (step == loop_count - 1)
+                    if loop_count > 1:
+                        self.log_info(f"🔄 다중 반복 구매 진행 중: ({step+1}/{loop_count})")
+                        if step > 0:
+                            driver.get(product_url)
+                            time.sleep(3)
                 
-                if "Order/Order.aspx" not in driver.current_url:
-                    return self.create_result(False, f"결제 페이지 로딩 실패: {driver.current_url}")
+                    self.log_info("바로구매 버튼 실행...")
+                    driver.execute_script("GoodsContent.CartInsert('D')")
+                    time.sleep(4)
                     
-                self.log_success("결제 페이지 도착!")
-                
-                # 보내는 사람 설정
-                if not sender_name:
-                    sender_name = os.environ.get('ACCOUNT_NAME', '')
-                if sender_name:
-                    self.log_info(f"보내는 사람 입력 중: {sender_name}")
-                    ord_name_input = self.find_element_safe(By.ID, "ordName")
-                    ord_name_input.clear()
-                    ord_name_input.send_keys(sender_name)
-                
-                # 받는 사람 이름 설정
-                receiver_name = sender_name or "수신인"
-                self.log_info(f"받는 사람 이름 입력 중: {receiver_name}")
-                rcv_name_input = self.find_element_safe(By.ID, "rcvName")
-                rcv_name_input.clear()
-                rcv_name_input.send_keys(receiver_name)
-                
-                # 받는 사람 번호 설정
-                p1, p2, p3 = self._split_phone_number(phone_number)
-                self.log_info(f"받는 사람 번호 입력 중: {p1}-{p2}-{p3}")
-                driver.find_element(By.ID, "rcvMobile1").clear()
-                driver.find_element(By.ID, "rcvMobile1").send_keys(p1)
-                driver.find_element(By.ID, "rcvMobile2").clear()
-                driver.find_element(By.ID, "rcvMobile2").send_keys(p2)
-                driver.find_element(By.ID, "rcvMobile3").clear()
-                driver.find_element(By.ID, "rcvMobile3").send_keys(p3)
-                
-                # MMS 내용 설정
-                try:
-                    memo_input = self.find_element_safe(By.ID, "orderMemo", timeout=3)
-                    if memo_input:
-                        memo_input.clear()
-                        memo_input.send_keys(".")
-                        self.log_success("MMS 내용에 '.' 입력 완료")
-                except Exception as em:
-                    self.log_warning(f"MMS 내용 입력 실패 (무시 가능): {em}")
-                
-                # 결제할 포인트 가져오기
-                try:
-                    price_text = ""
-                    # 1. 결제 페이지의 실제 상품 금액 또는 결제 예정 금액 엘리먼트에서 값을 우선 가져옴
+                    if "Order/Order.aspx" not in driver.current_url:
+                        return self.create_result(False, f"결제 페이지 로딩 실패: {driver.current_url}")
+                        
+                    self.log_success("결제 페이지 도착!")
+                    
+                    # 보내는 사람 설정
+                    if not sender_name:
+                        sender_name = os.environ.get('ACCOUNT_NAME', '')
+                    if sender_name:
+                        self.log_info(f"보내는 사람 입력 중: {sender_name}")
+                        ord_name_input = self.find_element_safe(By.ID, "ordName")
+                        ord_name_input.clear()
+                        ord_name_input.send_keys(sender_name)
+                    
+                    # 받는 사람 이름 설정
+                    receiver_name = sender_name or "수신인"
+                    self.log_info(f"받는 사람 이름 입력 중: {receiver_name}")
+                    rcv_name_input = self.find_element_safe(By.ID, "rcvName")
+                    rcv_name_input.clear()
+                    rcv_name_input.send_keys(receiver_name)
+                    
+                    # 받는 사람 번호 설정
+                    p1, p2, p3 = self._split_phone_number(phone_number)
+                    self.log_info(f"받는 사람 번호 입력 중: {p1}-{p2}-{p3}")
+                    driver.find_element(By.ID, "rcvMobile1").clear()
+                    driver.find_element(By.ID, "rcvMobile1").send_keys(p1)
+                    driver.find_element(By.ID, "rcvMobile2").clear()
+                    driver.find_element(By.ID, "rcvMobile2").send_keys(p2)
+                    driver.find_element(By.ID, "rcvMobile3").clear()
+                    driver.find_element(By.ID, "rcvMobile3").send_keys(p3)
+                    
+                    # MMS 내용 설정
                     try:
-                        price_element = self.find_element_safe(By.CSS_SELECTOR, "#total_pay_price span", timeout=3)
-                        if not price_element:
-                            price_element = self.find_element_safe(By.CSS_SELECTOR, "#total_goods_price span", timeout=3)
-                        
-                        if price_element:
-                            val = price_element.text.strip().replace(',', '')
-                            val_clean = "".join(c for c in val if c.isdigit())
-                            if val_clean and int(val_clean) > 0:
-                                price_text = val_clean
-                                self.log_info(f"결제 페이지 실제 결제금액 감지: {price_text}원")
-                    except Exception as ep_chk:
-                        self.log_warning(f"결제 페이지 금액 크롤링 실패 (Fallback 계산법 사용): {ep_chk}")
-
-                    # 2. 크롤링 실패 시 fallback 계산 적용
-                    if not price_text:
-                        price = coupon_item.get('price', 0)
-                        total_cost = price * quantity
-                        price_text = str(total_cost)
-                        self.log_info(f"계산된 결제 금액(Fallback): {price_text}원")
-                    else:
-                        # 크롤링 성공 시 수량 역산 동기화
-                        single_price = coupon_item.get('price', 0)
-                        if single_price > 0:
-                            actual_qty = int(price_text) // single_price
-                            if actual_qty > 0 and actual_qty != quantity:
-                                self.log_info(f"실제 결제 수량 동기화: {quantity}개 -> {actual_qty}개")
-                                quantity = actual_qty
+                        memo_input = self.find_element_safe(By.ID, "orderMemo", timeout=3)
+                        if memo_input:
+                            memo_input.clear()
+                            memo_input.send_keys(".")
+                            self.log_success("MMS 내용에 '.' 입력 완료")
+                    except Exception as em:
+                        self.log_warning(f"MMS 내용 입력 실패 (무시 가능): {em}")
                     
-                    point_input = self.find_element_safe(By.ID, "point_etc1", timeout=10)
-                    if not point_input:
-                        return self.create_result(False, "포인트 입력창(point_etc1)을 찾을 수 없습니다. 페이지 로딩 지연이거나 필드가 누락되었습니다.")
-                        
-                    driver.execute_script("arguments[0].scrollIntoView(true);", point_input)
-                    time.sleep(0.5)
-                    
+                    # 결제할 포인트 가져오기
                     try:
-                        point_input.clear()
-                        point_input.send_keys(price_text)
-                    except Exception as pe:
-                        self.log_warning(f"일반 텍스트 입력 실패로 JS 강제 주입 시도: {pe}")
-                        driver.execute_script(f"arguments[0].value = '{price_text}';", point_input)
+                        price_text = ""
+                        # 1. 결제 페이지의 실제 상품 금액 또는 결제 예정 금액 엘리먼트에서 값을 우선 가져옴
+                        try:
+                            price_element = self.find_element_safe(By.CSS_SELECTOR, "#total_pay_price span", timeout=3)
+                            if not price_element:
+                                price_element = self.find_element_safe(By.CSS_SELECTOR, "#total_goods_price span", timeout=3)
+                            
+                            if price_element:
+                                val = price_element.text.strip().replace(',', '')
+                                val_clean = "".join(c for c in val if c.isdigit())
+                                if val_clean and int(val_clean) > 0:
+                                    price_text = val_clean
+                                    self.log_info(f"결제 페이지 실제 결제금액 감지: {price_text}원")
+                        except Exception as ep_chk:
+                            self.log_warning(f"결제 페이지 금액 크롤링 실패 (Fallback 계산법 사용): {ep_chk}")
+     
+                        # 2. 크롤링 실패 시 fallback 계산 적용
+                        if not price_text:
+                            price = coupon_item.get('price', 0)
+                            total_cost = price * qty_to_buy
+                            price_text = str(total_cost)
+                            self.log_info(f"계산된 결제 금액(Fallback): {price_text}원")
+                        else:
+                            # 크롤링 성공 시 수량 역산 동기화
+                            single_price = coupon_item.get('price', 0)
+                            if single_price > 0:
+                                actual_qty = int(price_text) // single_price
+                                if actual_qty > 0 and actual_qty != qty_to_buy:
+                                    self.log_info(f"실제 결제 수량 동기화: {qty_to_buy}개 -> {actual_qty}개")
+                                    qty_to_buy = actual_qty
                         
-                    self.log_success(f"엠서클 포인트 {price_text}원 입력 완료")
-                except Exception as e:
-                    return self.create_result(False, f"포인트 입력 실패: {str(e)}")
+                        point_input = self.find_element_safe(By.ID, "point_etc1", timeout=10)
+                        if not point_input:
+                            return self.create_result(False, "포인트 입력창(point_etc1)을 찾을 수 없습니다. 페이지 로딩 지연이거나 필드가 누락되었습니다.")
+                            
+                        driver.execute_script("arguments[0].scrollIntoView(true);", point_input)
+                        time.sleep(0.5)
+                        
+                        try:
+                            point_input.clear()
+                            point_input.send_keys(price_text)
+                        except Exception as pe:
+                            self.log_warning(f"일반 텍스트 입력 실패로 JS 강제 주입 시도: {pe}")
+                            driver.execute_script(f"arguments[0].value = '{price_text}';", point_input)
+                            
+                        self.log_success(f"엠서클 포인트 {price_text}원 입력 완료")
+                    except Exception as e:
+                        return self.create_result(False, f"포인트 입력 실패: {str(e)}")
+                        
+                    self.log_info("포인트 적용 클릭...")
+                    driver.execute_script("document.getElementById('chkMcircelPoint').click();")
+                    time.sleep(1.5)
                     
-                self.log_info("포인트 적용 클릭...")
-                driver.execute_script("document.getElementById('chkMcircelPoint').click();")
-                time.sleep(1.5)
-                
-                # SweetAlert2 혹은 HTML 얼럿 닫기
-                try:
-                    ok_buttons = driver.find_elements(By.XPATH, "//*[text()='확인']")
-                    for btn in ok_buttons:
-                        if btn.is_displayed():
-                            btn.click()
-                            self.log_success("포인트 적용 안내 팝업 확인 완료")
-                            break
-                except Exception as e:
-                    self.log_warning(f"포인트 적용 팝업 닫기 실패 (무시 가능): {e}")
+                    # SweetAlert2 혹은 HTML 얼럿 닫기
+                    try:
+                        ok_buttons = driver.find_elements(By.XPATH, "//*[text()='확인']")
+                        for btn in ok_buttons:
+                            if btn.is_displayed():
+                                btn.click()
+                                self.log_success("포인트 적용 안내 팝업 확인 완료")
+                                break
+                    except Exception as e:
+                        self.log_warning(f"포인트 적용 팝업 닫기 실패 (무시 가능): {e}")
+                        
+                    time.sleep(1)
                     
-                time.sleep(1)
+                    self.log_info("동의 항목 체크 중...")
+                    driver.execute_script("document.getElementById('agreeFlow').click();")
+                    time.sleep(0.3)
+                    driver.execute_script("document.getElementById('chkReSale').click();")
+                    time.sleep(0.3)
+                    self.log_success("개인정보 제공 동의 & 재판매 금지 동의 체크 완료")
+                    
+                    final_res = self._complete_payment(driver, main_window, product_name, quantity if is_last else qty_to_buy, is_last=is_last)
+                    if not final_res.get('success', False):
+                        return final_res
                 
-                self.log_info("동의 항목 체크 중...")
-                driver.execute_script("document.getElementById('agreeFlow').click();")
-                time.sleep(0.3)
-                driver.execute_script("document.getElementById('chkReSale').click();")
-                time.sleep(0.3)
-                self.log_success("개인정보 제공 동의 & 재판매 금지 동의 체크 완료")
-                
-                return self._complete_payment(driver, main_window, product_name, quantity)
+                return final_res
                 
         except Exception as e:
             error_msg = f"쿠폰 구매 중 오류: {str(e)}"
             self.log_error(error_msg)
             return self.create_result(False, error_msg)
         finally:
-            # 사용자가 결제 페이지에서 수동으로 결제 버튼을 클릭할 수 있도록 탭 전환 및 닫기 처리를 모두 건너뜁니다.
             pass
 
     def _is_auto_payment_enabled(self):
@@ -532,7 +549,7 @@ class BaeminModule(BaseModule):
             self.logger.error(f"설정 파일 읽기 오류: {e}")
         return False
 
-    def _complete_payment(self, driver, main_window, product_name, quantity):
+    def _complete_payment(self, driver, main_window, product_name, quantity, is_last=True):
         """결제 자동 클릭 혹은 수동 대기 후 탭 닫기 및 포인트 체크"""
         auto_pay = self._is_auto_payment_enabled()
         
@@ -600,19 +617,16 @@ class BaeminModule(BaseModule):
             time.sleep(0.5)
         
         if success_detected:
-            # 탭 닫고 메인 윈도우 전환
-            try:
-                driver.close()
-                driver.switch_to.window(main_window)
-                self.log_success(f"{product_name} 결제 완료 및 창 자동 닫기 처리")
-            except Exception as ew:
-                self.log_warning(f"창 닫기 혹은 메인 화면 전환 오류 (무시 가능): {ew}")
-            
-            # 포인트 확인 모듈 실행
-            try:
-                self.check_points_after_activity()
-            except Exception as ep_chk:
-                self.log_warning(f"결제 완료 후 포인트 조회 실패: {ep_chk}")
+            if is_last:
+                # 탭 닫고 메인 윈도우 전환
+                try:
+                    driver.close()
+                    driver.switch_to.window(main_window)
+                    self.log_success(f"{product_name} 결제 완료 및 창 자동 닫기 처리")
+                except Exception as ew:
+                    self.log_warning(f"창 닫기 혹은 메인 화면 전환 오류 (무시 가능): {ew}")
+            else:
+                self.log_success(f"{product_name} 단건 결제 성공 (다음 구매를 진행합니다.)")
                 
             return self.create_result(True, f"{product_name} {quantity}개 구매가 완료되었습니다.")
         else:

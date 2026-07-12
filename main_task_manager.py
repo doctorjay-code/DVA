@@ -1009,13 +1009,17 @@ class TaskManager:
                         
                     if is_success:
                         self.log_success(f"{product_name} 구매", gui_callbacks, message)
+                        try:
+                            baemin.check_points_after_activity()
+                        except Exception as ep_chk:
+                            self.logger.warning(f"구매 완료 후 포인트 조회 실패: {ep_chk}")
                     else:
                         self.log_failure(f"{product_name} 구매", gui_callbacks, message)
             except Exception as e:
                 self.log_error(f"{coupon_item.get('name', '쿠폰')} 구매", str(e), gui_callbacks)
             finally:
-                # 락 해제(current_module = None)는 사용자가 대화상자를 닫을 때 reset_module_state 콜백을 통해 수행하므로 여기서는 유지합니다.
-                pass
+                self.state.current_module = None
+                gui_callbacks['update_status']("대기 중")
         
         threading.Thread(target=_run, daemon=True).start()
 

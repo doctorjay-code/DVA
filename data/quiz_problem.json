@@ -26,8 +26,9 @@
     "answer_num": "1"
   },
   "Atorvastatin은 ( ㄱ )에서 ( ㄴ )의 합성을 억제하고, Ezetimibe는 ( ㄷ )에서 ( ㄴ )의 흡수를 억제하는 Dual inhibition 작용으로 Atorvastatin 단일제 대비 우수한 LDL-C 강하 효과를 나타냅니다": {
-    "answer": "3",
-    "category": "리토바젯"
+    "answer": "(ㄱ) 간 (ㄴ) 콜레스테롤 (ㄷ) 소장",
+    "category": "리토바젯",
+    "answer_num": "3"
   },
   "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단일제 대비 LDL-C 강하효과를 보였다": {
     "answer": "O",
@@ -84,16 +85,19 @@
     "category": "뉴디짐"
   },
   "대웅징코샷의 성분을 고르시오": {
-    "answer": "2",
-    "category": "대웅징코샷정240mg"
+    "answer": "은행엽건조엑스(ginkgo biloba leaf dried extract)",
+    "category": "대웅징코샷정240mg",
+    "answer_num": "2"
   },
   "아시아 신경인지질환 전문가 그룹(ASCEND)에서는 Ginkgo biloba를 MCI 증상 치료를 위해 권고하는 유일한 약리학적 제제로 제시하였습니다": {
-    "answer": "1",
-    "category": "대웅징코샷정240mg"
+    "answer": "O",
+    "category": "대웅징코샷정240mg",
+    "answer_num": "1"
   },
   "다음 중 대웅징코샷240mg의 주성분인 은행엽건조엑스(ginkgo biloba)의 효능에 해당하는 것은": {
-    "answer": "4",
-    "category": "대웅징코샷정240mg"
+    "answer": "모두 해당",
+    "category": "대웅징코샷정240mg",
+    "answer_num": "4"
   },
   "Escitalopram(렉사스타)은 Presynaptic Neuron의 ( )에 결합해서 serotonin 재흡수 억제 효과를 나타냅니다": {
     "answer": "4",
@@ -144,16 +148,19 @@
     "category": "멜라킹"
   },
   "모비케어는 인공지능 웨어러블 홀터 최초 부정맥 전문의 감수 레포트를 제공해주는 솔루션이다": {
-    "answer": "1",
-    "category": "모비케어"
+    "answer": "O",
+    "category": "모비케어",
+    "answer_num": "1"
   },
   "인공지능 웨어러블 홀터 심전도, 모비케어로는 부정맥 진단은 할 수 없다": {
-    "answer": "2",
-    "category": "모비케어"
+    "answer": "X",
+    "category": "모비케어",
+    "answer_num": "2"
   },
   "인공지능 웨어러블 홀터 심전도, 모비케어는 보험급여 사항 중 틀린 것은": {
-    "answer": "3",
-    "category": "모비케어"
+    "answer": "모비케어는 24시간 미만 검사만! 급여가 가능하다.",
+    "category": "모비케어",
+    "answer_num": "3"
   },
   "베아맥(Polaprezinc)은 H.pylori 위염 환자에서 3제요법 치료군에서보다 Polaprezinc 병용투여군에서 H.pylori 제균율이 유의하게 _______ 나타났습니다": {
     "answer": "1",
@@ -204,28 +211,33 @@
     "category": "세벨머"
   },
   "스피틴의 주성분인 Atorvastatin은 CARDS, ASCOT-LLA, SPARCL 임상을 통해 2형 당뇨병, 고혈압, 뇌졸중 환자에서 심혈관계 질환 발생위험을 감소시켰습니다": {
-    "answer": "1",
-    "category": "스피틴"
+    "answer": "O",
+    "category": "스피틴",
+    "answer_num": "1"
   },
   "스피틴은 cylodextrin을 부형제로 사용하여 난용성인 Atorvastatin의 소화관 흡수성 및 안정성을 개선시킨 약물이다": {
-    "answer": "1",
-    "category": "스피틴"
+    "answer": "O",
+    "category": "스피틴",
+    "answer_num": "1"
   },
   "스피틴은 10,20,40,80mg의 함량을 보유하여 환자 중증도에 따라 조절이 가능합니다": {
-    "answer": "1",
-    "category": "스피틴"
+    "answer": "O",
+    "category": "스피틴",
+    "answer_num": "1"
   },
   "시너지아 정의 성분을 고르시오": {
     "answer": "2",
     "category": "시너지아정"
   },
   "다음 중 시너지아 정의 특장점을 모두 고르시오": {
-    "answer": "4",
-    "category": "시너지아정"
+    "answer": "모두 해당",
+    "category": "시너지아정",
+    "answer_num": "4"
   },
   "다음 중 시너지아 정의 작용기전으로 틀린 것은": {
-    "answer": "4",
-    "category": "시너지아정"
+    "answer": "부교감신경 말단에서 아세틸콜린의 유리를 촉진하여 소화관 운동을 유발",
+    "category": "시너지아정",
+    "answer_num": "4"
   },
   "시클러는 인두편도염 치료에 효과적인 항생제입니다. 그렇다면 시클러의 성분은 무엇일까요": {
     "answer": "1",
@@ -279,16 +291,19 @@
     "category": "에빅사"
   },
   "담석 예방 목적으로 체중 감소 중 우루사(UDCA)를 처방할 수 있는 근거로 적절한 것은": {
-    "answer": "3",
-    "category": "우루사"
+    "answer": "UDCA는 담즙 내 콜레스테롤 농도를 낮춰 담석 생성을 억제한다.",
+    "category": "우루사",
+    "answer_num": "3"
   },
   "다음 중 체중감소로 인한 담석 생성 예방을 위한 우루사(UDCA) 사용 권고 용량으로 가장 적절한 것은": {
-    "answer": "3",
-    "category": "우루사"
+    "answer": "300mg 하루 2회",
+    "category": "우루사",
+    "answer_num": "3"
   },
   "다음 중 체중 감소 후 담석 발생 위험이 커져, 우루사 300mg 1일 2회 예방적 처방이 고려되는 환자는 누구일까요": {
-    "answer": "2",
-    "category": "우루사"
+    "answer": "주 1.5kg 이상 급격한 체중 감소 환자",
+    "category": "우루사",
+    "answer_num": "2"
   },
   "이리콜정(라모세트론)은 식사 여부와 관계없이 1일 1회 복용이 가능하다": {
     "answer": "1",
@@ -351,8 +366,9 @@
     "category": "포시다파"
   },
   "시너지아 정의 성분을 고르시오.": {
-    "answer": "2",
-    "category": "시너지아정"
+    "answer": "시트룰린 말산염 (Citrulline Malate)",
+    "category": "시너지아정",
+    "answer_num": "2"
   },
   "펙수클루 40mg의 증상개선(가슴쓰림, 만성기침 등) 입증한 연구의 대조군 약물은 무엇일까요": {
     "answer": "Esomeprazole 40mg",
@@ -386,5 +402,15 @@
   "유럽신경학회(EFNS-ENS/EAN) 가이드라인에서는 중등도~중증 알츠하이머병 환자 치료에 에빅사와 AChEI 병용 요법을 권고하고 있다": {
     "answer": "O",
     "category": "에빅사"
+  },
+  "에빅사 20mg+AChEI 병용 시 AChEI 단독요법 대비 행동 증상을 유의하게 개선하였다": {
+    "answer": "O",
+    "category": "에빅사",
+    "answer_num": ""
+  },
+  "렉사프로®는 Cytochrome P450 효소에 대한 약한 억제 작용으로 약물 상호작용 발생 위험이 낮은 약제이다": {
+    "answer": "O",
+    "category": "렉사프로",
+    "answer_num": ""
   }
 }
