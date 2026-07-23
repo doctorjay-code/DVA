@@ -995,7 +995,7 @@ class TaskManager:
         finally:
             self.state.current_module = None
 
-    def execute_point_use_purchase(self, quantity, phone, coupon_item, sender_name, gui_callbacks):
+    def execute_point_use_purchase(self, quantity, phone, coupon_item, sender_name, gui_callbacks, force_auto_pay=False):
         """선택된 상품 쿠폰 구매를 실행합니다."""
         def _run():
             try:
@@ -1011,7 +1011,7 @@ class TaskManager:
                     baemin = module_class(web_auto, gui_logger)
                     baemin.set_callbacks(gui_callbacks)
                     
-                    result = baemin.execute(quantity=quantity, phone_number=phone, coupon_item=coupon_item, sender_name=sender_name)
+                    result = baemin.execute(quantity=quantity, phone_number=phone, coupon_item=coupon_item, sender_name=sender_name, force_auto_pay=force_auto_pay)
                     
                     is_success = False
                     message = ""
@@ -1608,13 +1608,21 @@ class TaskManager:
             prompt = f"""너는 DVA 자동화 시스템의 AI 에이전트야.
 사용자가 Slack에 입력한 자연어 메시지: "{text}"
 
-사용자의 의도를 분석해서 아래 6가지 작업 중 알맞은 task_name 하나를 JSON 형식 {{"task_name": "..."}} 으로만 출력해:
+사용자의 의도를 분석해서 아래 6가지 작업 중 알맞은 task_name 하나와 필요시 product_keyword, quantity를 JSON 형식으로만 출력해:
 - attendance: 출석 체크 관련 (출석, 출체, 출도장, 도장찍기 등)
 - quiz: 일일 퀴즈 풀이 관련 (퀴즈, 문제, 퀴즈풀어, 문제풀어 등)
 - points: 포인트 및 회원 상태 조회 (포인트, 잔액, 얼마, 현재상태 등)
 - seminar: 세미나 목록 및 방송 조회 (세미나, 강의, 심포지엄, 방송 등)
 - survey: 설문조사 진행 (설문, 설문조사 등)
-- baemin: 배민 쿠폰 구매 (배민, 쿠폰, 기프티콘, 상품권 등)
+- baemin: 쿠폰/상품 구매 관련 (배민, 배달의민족, 카카오페이, 네이버페이, 스벅, 기프티콘, 쿠폰 등)
+
+baemin 인 경우:
+- product_keyword: 요청한 상품 종류 (예: "배달의민족", "카카오페이", "네이버페이", "스타벅스" 등. 명시되지 않았다면 "배달의민족")
+- quantity: 구매 수량 정수 (기본 1)
+
+출력 예시:
+{{"task_name": "baemin", "product_keyword": "배달의민족", "quantity": 1}}
+{{"task_name": "attendance"}}
 
 만약 어떤 작업에도 해당하지 않으면 {{"task_name": null}} 을 출력해.
 JSON 외의 다른 텍스트는 절대로 포함하지 마."""
@@ -1636,11 +1644,19 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                         "baemin": "🛵 포인트 사용 / 쿠폰 구매"
                     }
                     if t_name in desc_map:
-                        self.logger.info(f"🤖 Gemini AI 에이전트가 자연어를 해석했습니다: '{text}' -> {t_name}")
-                        return t_name, desc_map[t_name]
+                        product_keyword = parsed.get("product_keyword", "배달의민족")
+                        try:
+                            quantity = int(parsed.get("quantity", 1))
+                        except (ValueError, TypeError):
+                            quantity = 1
+                        desc = desc_map[t_name]
+                        if t_name == "baemin":
+                            desc = f"🛵 {product_keyword} {quantity}개 결제"
+                        self.logger.info(f"🤖 Gemini AI 에이전트가 자연어를 해석했습니다: '{text}' -> {t_name} ({product_keyword} {quantity}개)")
+                        return t_name, desc, product_keyword, quantity
         except Exception as e:
             self.logger.warning(f"Gemini 자연어 파싱 오류: {e}")
-        return None, None
+        return None, None, "배달의민족", 1
 
     def start_slack_listener(self, gui_callbacks):
         """Slack Socket Mode 리스너를 DVA 메인 프로세스 내부에서 가동"""
@@ -1648,6 +1664,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
             try:
                 import json
                 import time
+                import re
                 settings = gui_callbacks['gui_instance'].settings if 'gui_instance' in gui_callbacks else {}
                 if not settings.get('slack_notify_enabled', False):
                     return
@@ -1687,6 +1704,8 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
 
                             task_name = None
                             task_desc = None
+                            product_keyword = "배달의민족"
+                            quantity = 1
 
                             if any(k in text for k in ["출석", "출석체크", "출체"]):
                                 task_name = "attendance"
@@ -1703,15 +1722,27 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             elif any(k in text for k in ["설문", "설문조사"]):
                                 task_name = "survey"
                                 task_desc = "📋 세미나 설문"
-                            elif any(k in text for k in ["배민", "쿠폰", "기프티콘", "상품권"]):
+                            elif any(k in text for k in ["배민", "배달의민족", "쿠폰", "기프티콘", "상품권", "카카오", "네이버", "네페", "N페이", "스타벅스", "스벅"]):
                                 task_name = "baemin"
-                                task_desc = "🛵 포인트 사용 / 쿠폰 구매"
+                                q_match = re.search(r'(\d+)\s*(개|장)', text)
+                                if q_match:
+                                    quantity = int(q_match.group(1))
+                                
+                                if any(k in text for k in ["카카오", "카카오페이"]):
+                                    product_keyword = "카카오"
+                                elif any(k in text for k in ["네이버", "N페이", "네이버페이", "네페"]):
+                                    product_keyword = "네이버"
+                                elif any(k in text for k in ["스타벅스", "스벅", "커피"]):
+                                    product_keyword = "스타벅스"
+                                else:
+                                    product_keyword = "배달의민족"
+                                task_desc = f"🛵 {product_keyword} {quantity}개 결제"
 
                             if not task_name:
                                 # Gemini AI Agent 자연어 의도 파싱 시도
                                 gemini_key = settings.get('gemini_api_key')
                                 if gemini_key:
-                                    task_name, task_desc = self._parse_slack_intent_with_gemini(text, gemini_key)
+                                    task_name, task_desc, product_keyword, quantity = self._parse_slack_intent_with_gemini(text, gemini_key)
 
                             if not task_name:
                                 is_dm = event.get("channel_type") == "im"
@@ -1737,6 +1768,8 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 payload = {
                                     "cmd_id": f"{time.time()}_{task_name}",
                                     "task_name": task_name,
+                                    "product_keyword": product_keyword,
+                                    "quantity": quantity,
                                     "raw_text": text,
                                     "timestamp": time.time()
                                 }

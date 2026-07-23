@@ -214,7 +214,7 @@ class BaeminModule(BaseModule):
         else:
             return "010", digits[3:7] if len(digits)>3 else "", digits[7:] if len(digits)>7 else ""
 
-    def execute(self, quantity=1, phone_number='', coupon_item=None, sender_name=''):
+    def execute(self, quantity=1, phone_number='', coupon_item=None, sender_name='', force_auto_pay=False):
         """선택한 상품 쿠폰을 지정 수량만큼 구매합니다."""
         main_window = None
         try:
@@ -358,7 +358,7 @@ class BaeminModule(BaseModule):
                 time.sleep(0.3)
                 self.log_success("개인정보 제공 동의 & 재판매 금지 동의 체크 완료")
                 
-                return self._complete_payment(driver, main_window, product_name, quantity)
+                return self._complete_payment(driver, main_window, product_name, quantity, force_auto_pay=force_auto_pay)
                 
             elif purchase_type == 'cart':
                 # --- 신규 Cart Order (일반 상품) 바로구매 결제 로직 ---
@@ -521,7 +521,7 @@ class BaeminModule(BaseModule):
                     time.sleep(0.3)
                     self.log_success("개인정보 제공 동의 & 재판매 금지 동의 체크 완료")
                     
-                    final_res = self._complete_payment(driver, main_window, product_name, quantity if is_last else qty_to_buy, is_last=is_last)
+                    final_res = self._complete_payment(driver, main_window, product_name, quantity if is_last else qty_to_buy, is_last=is_last, force_auto_pay=force_auto_pay)
                     if not final_res.get('success', False):
                         return final_res
                 
@@ -549,9 +549,9 @@ class BaeminModule(BaseModule):
             self.logger.error(f"설정 파일 읽기 오류: {e}")
         return False
 
-    def _complete_payment(self, driver, main_window, product_name, quantity, is_last=True):
+    def _complete_payment(self, driver, main_window, product_name, quantity, is_last=True, force_auto_pay=False):
         """결제 자동 클릭 혹은 수동 대기 후 탭 닫기 및 포인트 체크"""
-        auto_pay = self._is_auto_payment_enabled()
+        auto_pay = True if force_auto_pay else self._is_auto_payment_enabled()
         
         if auto_pay:
             self.log_info("포인트 자동 결제를 진행합니다...")

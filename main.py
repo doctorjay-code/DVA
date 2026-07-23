@@ -1053,11 +1053,93 @@ class DoctorBillApp:
                         elif task_name == 'points':
                             self.task_manager.execute_module_by_config('points', gui_callbacks)
                         elif task_name == 'baemin':
-                            self.on_baemin_purchase()
-        except Exception:
-            pass
+                            p_kw = data.get('product_keyword', '배달의민족')
+                            qty = data.get('quantity', 1)
+                            self.on_baemin_remote_purchase(product_keyword=p_kw, quantity=qty)
+        except Exception as ipc_err:
+            self.log_message(f"⚠ Slack IPC 명령 처리 오류: {ipc_err}")
         finally:
             self.root.after(500, self.check_slack_ipc_commands)
+
+    def on_baemin_remote_purchase(self, product_keyword='배달의민족', quantity=1):
+        """Slack 원격 요청을 받아 GUI 팝업 없이 지정된 상품과 수량으로 백그라운드 자동 결제 진행"""
+        def _run_remote_purchase():
+            try:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                cache_path = os.path.join(base_dir, "data", "coupon_cache.json")
+                coupon_list = []
+                
+                # 1. 로컬 캐시에서 쿠폰 목록 읽기 시도
+                if os.path.exists(cache_path):
+                    try:
+                        with open(cache_path, 'r', encoding='utf-8') as f:
+                            coupon_list = json.load(f)
+                    except Exception:
+                        coupon_list = []
+                        
+                # 2. 캐시에 없으면 실시간 크롤링 시도
+                if not coupon_list:
+                    from modules.baemin_module import BaeminModule
+                    with self.task_manager.browser_lock:
+                        web_auto = self.task_manager.ensure_web_automation_alive(self.get_callbacks())
+                        if web_auto:
+                            baemin = BaeminModule(web_auto, self.task_manager.create_gui_logger(self.get_callbacks()))
+                            coupon_list = baemin.scrape_coupon_list()
+                            
+                # 3. 매칭되는 쿠폰 검색
+                target_coupon = None
+                if coupon_list:
+                    alias_map = {
+                        "네이버": ["네이버", "N페이", "네페"],
+                        "배달의민족": ["배달의민족", "배민"],
+                        "카카오": ["카카오", "카카오페이"],
+                        "스타벅스": ["스타벅스", "스벅"]
+                    }
+                    search_keywords = alias_map.get(product_keyword, [product_keyword])
+
+                    for item in coupon_list:
+                        name = item.get('name', '')
+                        if any(kw in name for kw in search_keywords):
+                            target_coupon = item
+                            break
+                            
+                    if not target_coupon:
+                        for item in coupon_list:
+                            if "배달의민족" in item.get('name', ''):
+                                target_coupon = item
+                                break
+                        if not target_coupon:
+                            target_coupon = coupon_list[0]
+                            
+                # Fallback 기본 쿠폰
+                if not target_coupon:
+                    target_coupon = {
+                        'name': '배달의민족 10,000원',
+                        'price': 9700,
+                        'value': 10000,
+                        'guid': '14152303',
+                        'purchase_type': 'bulk'
+                    }
+                    
+                phone = self.get_setting('baemin_phone') or ""
+                account_name = os.environ.get('ACCOUNT_NAME', '')
+                
+                self.log_message(f"🛵 [Slack 원격 결제 실행] {target_coupon.get('name')} {quantity}개 (수신번호: {phone or '기본'})")
+                
+                # force_auto_pay=True 로 GUI 팝업 없이 백그라운드 결제까지 완결
+                self.task_manager.execute_point_use_purchase(
+                    quantity=quantity,
+                    phone=phone,
+                    coupon_item=target_coupon,
+                    sender_name=account_name,
+                    gui_callbacks=self.get_callbacks(),
+                    force_auto_pay=True
+                )
+            except Exception as e:
+                self.log_message(f"❌ Slack 원격 구매 처리 중 오류: {e}")
+                
+        import threading
+        threading.Thread(target=_run_remote_purchase, daemon=True).start()
 
     def check_scheduled_tasks(self):
         # 만약 업데이트 검사가 완료되지 않았다면, 다른 자동 스케줄 및 로그인 작업을 대기합니다.
