@@ -607,7 +607,14 @@ class SurveyModule(BaseModule):
                     
                     # 상세 페이지로 직접 이동
                     self.web_automation.driver.get(target['url'])
-                    time.sleep(2.0)
+                    # 고정 sleep 대신 DOM 로딩 완료를 감지 (최대 8초 대기)
+                    try:
+                        from selenium.webdriver.support.ui import WebDriverWait
+                        WebDriverWait(self.web_automation.driver, 8).until(
+                            lambda d: d.execute_script("return document.readyState") == "complete"
+                        )
+                    except Exception:
+                        pass  # 타임아웃 시 그냥 진행
 
                     # 재입장하기 버튼 확인 및 처리
                     res = self.auto_click_reenter_button(target['title'])
@@ -740,7 +747,7 @@ class SurveyModule(BaseModule):
             # 재입장하기 버튼이 있는지 먼저 확인
             try:
                 # find_element_safe를 사용하여 짧은 타임아웃으로 확인
-                reenter_button = self.find_element_safe(By.CSS_SELECTOR, REENTER_BUTTON_SELECTOR, timeout=5)
+                reenter_button = self.find_element_safe(By.CSS_SELECTOR, REENTER_BUTTON_SELECTOR, timeout=2)
                 
                 self.log_info("재입장하기 버튼 발견")
                 

@@ -109,8 +109,8 @@ class BaseModule:
                 element = WebDriverWait(self.web_automation.driver, timeout).until(
                     EC.presence_of_element_located((by, value))
                 )
-                # 요소가 화면에 보일 때까지 대기
-                WebDriverWait(self.web_automation.driver, 5).until(EC.visibility_of(element))
+                # 요소가 화면에 보일 때까지 대기 (presence와 동일한 timeout 사용)
+                WebDriverWait(self.web_automation.driver, timeout).until(EC.visibility_of(element))
                 return element
             except StaleElementReferenceException as e:
                 self.log_warning(f"요소 만료 감지 (Stale), 재시도 중... ({i+1}/{retries})")
