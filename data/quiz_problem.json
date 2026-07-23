@@ -30,14 +30,6 @@
     "category": "리토바젯",
     "answer_num": "3"
   },
-  "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단일제 대비 LDL-C 강하효과를 보였다": {
-    "answer": "O",
-    "category": "리토바젯"
-  },
-  "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단독 투여 대비 유의하게 TC 및 잔여심혈관인자 (non HDL-C, Apo B, HDL-C)를 현저하게 개선하였다": {
-    "answer": "O",
-    "category": "리토바젯"
-  },
   "PPI대비 P-CAB에 대한 장점으로 잘못된 것은": {
     "answer": "PPI는 긴 반감기를 가지고 있는 반면 P-CAB은 반감기가 짧아 야간 산분비에 더 효과적이다.",
     "category": "펙수클루",
@@ -199,16 +191,19 @@
     "category": "세레브레인"
   },
   "세벨머의 주 성분은 ( )으로 장관에서 인산과 결합하여 체내흡수를 차단하고 배설을 촉진해 혈청 인 수치를 감소시킵니다": {
-    "answer": "3",
-    "category": "세벨머"
+    "answer": "Sevelamer carbonate",
+    "category": "세벨머",
+    "answer_num": "3"
   },
   "Sevelamer Carbonate(세벨머)는 국제신장학회(KDIGO) 가이드라인에서 제안된 고인산혈증 치료 약물 입니다": {
-    "answer": "1",
-    "category": "세벨머"
+    "answer": "비칼슘계",
+    "category": "세벨머",
+    "answer_num": "1"
   },
   "Sevelamer Carbonate(세벨머)는 투석을 받는 CKD 환자의 혈청 인 조절에 적응증을 가지고 있습니다": {
-    "answer": "1",
-    "category": "세벨머"
+    "answer": "O",
+    "category": "세벨머",
+    "answer_num": "1"
   },
   "스피틴의 주성분인 Atorvastatin은 CARDS, ASCOT-LLA, SPARCL 임상을 통해 2형 당뇨병, 고혈압, 뇌졸중 환자에서 심혈관계 질환 발생위험을 감소시켰습니다": {
     "answer": "O",
@@ -306,16 +301,19 @@
     "answer_num": "2"
   },
   "이리콜정(라모세트론)은 식사 여부와 관계없이 1일 1회 복용이 가능하다": {
-    "answer": "1",
-    "category": "이리콜정"
+    "answer": "O",
+    "category": "이리콜정",
+    "answer_num": "1"
   },
   "이리콜정(라모세트론)은 IBS-D의 전반적인 증상을 개선시켰다": {
-    "answer": "1",
-    "category": "이리콜정"
+    "answer": "O",
+    "category": "이리콜정",
+    "answer_num": "1"
   },
   "상병코드 K58.1(IBS-D) 환자에게 사용하는 이리콜정의 개선 효과 중, 틀린 것을 고르시오": {
-    "answer": "4",
-    "category": "이리콜정"
+    "answer": "대변 횟수",
+    "category": "이리콜정",
+    "answer_num": "4"
   },
   "이코사연질캡슐의 성분은 EPA 300mg 이다": {
     "answer": "1",
@@ -411,6 +409,31 @@
   "렉사프로®는 Cytochrome P450 효소에 대한 약한 억제 작용으로 약물 상호작용 발생 위험이 낮은 약제이다": {
     "answer": "O",
     "category": "렉사프로",
+    "answer_num": ""
+  },
+  "[더 - 스피로킷]으로 진단 가능한 질환으로 적절한 것은": {
+    "answer": "만성 기도 질환(COPD & 천식)",
+    "category": "더-스피로킷",
+    "answer_num": "3"
+  },
+  "[더-스피로킷]의 All in one 구성품이 아닌 것은": {
+    "answer": "전극",
+    "category": "더-스피로킷",
+    "answer_num": "4"
+  },
+  "[더-스피로킷] 장점으로 알맞지 않은 것은": {
+    "answer": "침습검사이며, 방사선 노출이 필수적이다.",
+    "category": "더-스피로킷",
+    "answer_num": "2"
+  },
+  "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단독 투여 대비 유의하게 TC 및 잔여심혈관인자 (non HDL-C, Apo B, HDL-C)를 현저하게 개선하였다.": {
+    "answer": "O",
+    "category": "리토바젯",
+    "answer_num": ""
+  },
+  "이상지질혈증 치료 핵심 키워드는 '\"The Earier is better, The lower is better\" 로 2018 AHA/ACC에는 심혈관계질환 예방을 위해 ( )부터 최적의 지질 수치에 도달해야 된다고 명시하였다.": {
+    "answer": "O",
+    "category": "리토바젯",
     "answer_num": ""
   }
 }

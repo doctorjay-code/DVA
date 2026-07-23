@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.8.1"
+VERSION = "v3.9.0"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -29,7 +29,11 @@ class DoctorBillApp:
         
         # 공통 설정 및 사용자 정보 상태 관리
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.settings_file = os.path.join(base_dir, "data", "settings.json")
+        account_name = os.environ.get('ACCOUNT_NAME', '').strip()
+        if account_name:
+            self.settings_file = os.path.join(base_dir, "data", f"settings_{account_name}.json")
+        else:
+            self.settings_file = os.path.join(base_dir, "data", "settings.json")
         self.user_info = {
             'name': '로그인 대기',
             'points': '0 P',
@@ -107,7 +111,9 @@ class DoctorBillApp:
         self.setup_tray_icon()
         
         self.root.after(200, self.start_update_check)
+        self.root.after(500, self.check_slack_ipc_commands)
         self.root.after(1000, self.check_scheduled_tasks)
+        self.root.after(1500, lambda: self.task_manager.start_slack_listener(self.get_callbacks()))
 
         self.ui.work_log.log_message("프로그램이 시작되었습니다.")
 
@@ -121,8 +127,20 @@ class DoctorBillApp:
                 merged.update(settings)
                 return merged
             else:
-                self.save_settings(self.default_settings)
-                return self.default_settings.copy()
+                # 계정별 전용 셋팅 파일(예: settings_박주하.json)이 최초 생성될 때
+                # 기존 settings.json 의 소중한 설정값(Gemini키, 카카오토큰, 휴대폰번호 등)을 그대로 계승하여 절대 날아가지 않도록 보존합니다.
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                base_settings_file = os.path.join(base_dir, "data", "settings.json")
+                initial_settings = self.default_settings.copy()
+                if os.path.exists(base_settings_file) and base_settings_file != self.settings_file:
+                    try:
+                        with open(base_settings_file, 'r', encoding='utf-8') as f:
+                            base_settings = json.load(f)
+                        initial_settings.update(base_settings)
+                    except:
+                        pass
+                self.save_settings(initial_settings)
+                return initial_settings.copy()
         except:
             return self.default_settings.copy()
 
@@ -430,12 +448,12 @@ class DoctorBillApp:
 
     def on_seminar_refresh_toggle(self, btn):
         current_text = btn.cget('text')
-        if "멈춤" in current_text:
-            btn.config(text="▶ 재개", bg="#27ae60")
+        if "새로고침 중" in current_text or "작동 중" in current_text or "멈춤" in current_text:
+            btn.config(text="🔴 일시 정지", bg="#e74c3c")
             self.task_manager.state.is_seminar_refresh_paused = True
             self.log_message("세미나 새로고침이 일시정지되었습니다.")
         else:
-            btn.config(text="⏸ 멈춤", bg="#e74c3c")
+            btn.config(text="🟢 새로고침 중", bg="#27ae60")
             self.task_manager.state.is_seminar_refresh_paused = False
             self.log_message("세미나 새로고침이 재개되었습니다.")
 
@@ -712,7 +730,11 @@ class DoctorBillApp:
         logging.info(f"[GUI] {message}")
 
     def gui_update_status(self, status):
-        self.root.after(0, lambda: self.ui.update_status(status))
+        # 다줄 문구인 경우(상태 요약 등)는 1줄 메시지로 정리하여 상태 라벨 깨짐 방지
+        clean_status = status
+        if status and "\n" in str(status):
+            clean_status = "포인트/상태 갱신 완료"
+        self.root.after(0, lambda: self.ui.update_status(clean_status))
 
     def gui_update_user_info(self, user_name=None, account_type=None):
         if user_name:
@@ -961,6 +983,81 @@ class DoctorBillApp:
         # 💡 [중요] GUI 핸들러는 더 이상 Root Logger에 추가하지 않습니다.
         # 이렇게 함으로써 logger.info() 호출이 GUI 로그창을 더럽히는 것을 원천 봉쇄합니다.
         # GUI 로그는 오직 self.log_message() 호출을 통해서만 이루어집니다.
+
+    def check_slack_ipc_commands(self):
+        """Slack 원격 명령 IPC 수신기: 동시에 실행 중인 박주하/박범준 앱에 실시간 명령 전파"""
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            dispatch_file = os.path.join(base_dir, "data", "slack_cmd_dispatch.json")
+            if os.path.exists(dispatch_file):
+                with open(dispatch_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                cmd_id = data.get("cmd_id")
+                timestamp = data.get("timestamp", 0)
+                
+                import time
+                if time.time() - timestamp < 15 and cmd_id != getattr(self, '_last_processed_slack_cmd_id', None):
+                    self._last_processed_slack_cmd_id = cmd_id
+                    
+                    raw_text = data.get("raw_text", "")
+                    my_account = os.environ.get("ACCOUNT_NAME", "").strip()
+                    
+                    is_target = True
+                    if my_account and raw_text:
+                        import re
+                        clean_text = re.sub(r'<@.*?>', '', raw_text).strip()
+                        my_names = [my_account]
+                        if len(my_account) >= 2:
+                            my_names.append(my_account[1:])  # 예: '박주하' -> '주하'
+                        
+                        # 1. 내 계정 이름이 포함되어 있으면 무조건 내 타겟
+                        if any(n in clean_text for n in my_names if n):
+                            is_target = True
+                        else:
+                            # 2. 다른 사람 계정 이름이 콕 집어 언급되어 있는지만 검사
+                            all_known_accounts = ["박주하", "주하", "박범준", "범준"]
+                            other_target_mentioned = False
+                            for acc in all_known_accounts:
+                                if acc not in my_names and acc in clean_text:
+                                    other_target_mentioned = True
+                                    break
+                            
+                            if other_target_mentioned:
+                                is_target = False
+                            else:
+                                is_target = True
+                        
+                    if is_target:
+                        task_name = data.get("task_name")
+                        task_desc_map = {
+                            'attendance': '📅 출석 체크',
+                            'quiz': '🧠 일일 퀴즈 풀이',
+                            'points': '💰 포인트/상태 갱신',
+                            'seminar': '📢 세미나 목록',
+                            'survey': '📋 세미나 설문',
+                            'baemin': '🛵 포인트 사용 / 쿠폰 구매'
+                        }
+                        task_desc = task_desc_map.get(task_name, task_name)
+                        self.log_message(f"📱 [Slack 원격 요청] {task_desc} 실행 요청 수신")
+                        
+                        gui_callbacks = self.get_callbacks()
+                        if task_name == 'attendance':
+                            self.on_attendance()
+                        elif task_name == 'quiz':
+                            self.on_quiz()
+                        elif task_name == 'seminar':
+                            self.on_seminar_check()
+                        elif task_name == 'survey':
+                            self.on_survey_open()
+                        elif task_name == 'points':
+                            self.task_manager.execute_module_by_config('points', gui_callbacks)
+                        elif task_name == 'baemin':
+                            self.on_baemin_purchase()
+        except Exception:
+            pass
+        finally:
+            self.root.after(500, self.check_slack_ipc_commands)
 
     def check_scheduled_tasks(self):
         # 만약 업데이트 검사가 완료되지 않았다면, 다른 자동 스케줄 및 로그인 작업을 대기합니다.

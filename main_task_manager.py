@@ -394,8 +394,8 @@ class TaskManager:
                     is_success = bool(result)
                 
                 if is_success:
-                    # '세미나 풀이'는 개별 항목별로 이미 알림을 보냈으므로 최종 요약 알림은 건너뜀
-                    skip = (module_name == "세미나 풀이")
+                    # '세미나 풀이', '포인트'는 내부에서 이미 로그를 보냈으므로 중복 출력 방지
+                    skip = (module_name in ["세미나 풀이", "포인트"])
                     self.log_success(module_name, gui_callbacks, message, skip_notify=skip)
                     self.handle_special_actions(module_name, 'success')
                 else:
@@ -608,6 +608,20 @@ class TaskManager:
                         'log_message': gui_callbacks['log_message']
                     }
                     gui_callbacks['show_seminar_dialog'](seminars, dialog_callbacks)
+
+                # Slack으로 수집된 세미나 목록 요약 발송
+                if seminars:
+                    summary_lines = ["📺 *[닥터빌 세미나 목록]*"]
+                    for s in seminars[:7]:
+                        d = s.get('date', '')
+                        day = s.get('day', '')
+                        tm = s.get('time', '')
+                        t = s.get('title', '')
+                        st = s.get('status', '')
+                        if t:
+                            summary_lines.append(f"• *{d}({day}) {tm}* | {t} (`{st}`)")
+                    slack_msg = "\n".join(summary_lines)
+                    self.notifier.slack_notifier.send_slack_message(slack_msg)
                 
             except Exception as e:
                 self.logger.error(f"세미나 확인 오류: {str(e)}")
@@ -1587,4 +1601,156 @@ class TaskManager:
             "retry_count": 0
         })
         self._save_pending_surveys(surveys)
-        self.logger.info(f"📝 자동 설문 대기열에 등록되었습니다: {title} (지연 시간 설정 적용)")
+    def _parse_slack_intent_with_gemini(self, text, api_key):
+        """Gemini AI Agent를 이용한 Slack 자연어 의도 해석"""
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            prompt = f"""너는 DVA 자동화 시스템의 AI 에이전트야.
+사용자가 Slack에 입력한 자연어 메시지: "{text}"
+
+사용자의 의도를 분석해서 아래 6가지 작업 중 알맞은 task_name 하나를 JSON 형식 {{"task_name": "..."}} 으로만 출력해:
+- attendance: 출석 체크 관련 (출석, 출체, 출도장, 도장찍기 등)
+- quiz: 일일 퀴즈 풀이 관련 (퀴즈, 문제, 퀴즈풀어, 문제풀어 등)
+- points: 포인트 및 회원 상태 조회 (포인트, 잔액, 얼마, 현재상태 등)
+- seminar: 세미나 목록 및 방송 조회 (세미나, 강의, 심포지엄, 방송 등)
+- survey: 설문조사 진행 (설문, 설문조사 등)
+- baemin: 배민 쿠폰 구매 (배민, 쿠폰, 기프티콘, 상품권 등)
+
+만약 어떤 작업에도 해당하지 않으면 {{"task_name": null}} 을 출력해.
+JSON 외의 다른 텍스트는 절대로 포함하지 마."""
+
+            res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=4)
+            if res.status_code == 200:
+                resp_json = res.json()
+                raw_out = resp_json['candidates'][0]['content']['parts'][0]['text']
+                match = re.search(r'\{.*\}', raw_out, re.DOTALL)
+                if match:
+                    parsed = json.loads(match.group(0))
+                    t_name = parsed.get("task_name")
+                    desc_map = {
+                        "attendance": "📅 출석 체크",
+                        "quiz": "🧠 일일 퀴즈 풀이",
+                        "points": "💰 포인트/상태 갱신",
+                        "seminar": "📢 세미나 목록",
+                        "survey": "📋 세미나 설문",
+                        "baemin": "🛵 포인트 사용 / 쿠폰 구매"
+                    }
+                    if t_name in desc_map:
+                        self.logger.info(f"🤖 Gemini AI 에이전트가 자연어를 해석했습니다: '{text}' -> {t_name}")
+                        return t_name, desc_map[t_name]
+        except Exception as e:
+            self.logger.warning(f"Gemini 자연어 파싱 오류: {e}")
+        return None, None
+
+    def start_slack_listener(self, gui_callbacks):
+        """Slack Socket Mode 리스너를 DVA 메인 프로세스 내부에서 가동"""
+        def listener_thread():
+            try:
+                import json
+                import time
+                settings = gui_callbacks['gui_instance'].settings if 'gui_instance' in gui_callbacks else {}
+                if not settings.get('slack_notify_enabled', False):
+                    return
+
+                slack_bot_token = settings.get('slack_bot_token') or os.environ.get("SLACK_BOT_TOKEN", "xoxb-11649655972307-11657869117457-klRsKH448VknFk9msaMVoZ2O")
+                slack_app_token = settings.get('slack_app_token') or os.environ.get("SLACK_APP_TOKEN", "xapp-1-A0BKDJ3D1PE-11649706492979-7702281ae98722cd849255e8324975633c7082c7f682ca332938b1c685a47497")
+
+                if not slack_bot_token or not slack_app_token:
+                    return
+
+                from slack_sdk.web import WebClient
+                from slack_sdk.socket_mode import SocketModeClient
+                from slack_sdk.socket_mode.response import SocketModeResponse
+                from slack_sdk.socket_mode.request import SocketModeRequest
+
+                web_client = WebClient(token=slack_bot_token)
+                socket_client = SocketModeClient(app_token=slack_app_token, web_client=web_client)
+
+                def handle_request(client, req):
+                    response = SocketModeResponse(envelope_id=req.envelope_id)
+                    client.send_socket_mode_response(response)
+
+                    if req.type == "events_api":
+                        event = req.payload.get("event", {})
+                        event_type = event.get("type")
+
+                        if event.get("bot_id") or event.get("subtype") in ["bot_message", "channel_join"]:
+                            return
+
+                        if event_type in ["app_mention", "message"]:
+                            text = event.get("text", "").strip()
+                            channel_id = event.get("channel")
+                            thread_ts = event.get("ts")
+
+                            if not text or not channel_id:
+                                return
+
+                            task_name = None
+                            task_desc = None
+
+                            if any(k in text for k in ["출석", "출석체크", "출체"]):
+                                task_name = "attendance"
+                                task_desc = "📅 출석 체크"
+                            elif any(k in text for k in ["퀴즈", "문제"]):
+                                task_name = "quiz"
+                                task_desc = "🧠 일일 퀴즈 풀이"
+                            elif any(k in text for k in ["포인트", "잔액", "상태"]):
+                                task_name = "points"
+                                task_desc = "💰 포인트/상태 갱신"
+                            elif any(k in text for k in ["세미나", "강의", "심포지엄", "내일 세미나"]):
+                                task_name = "seminar"
+                                task_desc = "📢 세미나 목록"
+                            elif any(k in text for k in ["설문", "설문조사"]):
+                                task_name = "survey"
+                                task_desc = "📋 세미나 설문"
+                            elif any(k in text for k in ["배민", "쿠폰", "기프티콘", "상품권"]):
+                                task_name = "baemin"
+                                task_desc = "🛵 포인트 사용 / 쿠폰 구매"
+
+                            if not task_name:
+                                # Gemini AI Agent 자연어 의도 파싱 시도
+                                gemini_key = settings.get('gemini_api_key')
+                                if gemini_key:
+                                    task_name, task_desc = self._parse_slack_intent_with_gemini(text, gemini_key)
+
+                            if not task_name:
+                                is_dm = event.get("channel_type") == "im"
+                                if event_type == "app_mention" or is_dm:
+                                    help_msg = "🤖 *[DVA 원격 제어]* `출석체크`, `퀴즈`, `포인트`, `세미나`, `배민/쿠폰` 명령어를 입력해 주세요!"
+                                    web_client.chat_postMessage(channel=channel_id, text=help_msg, thread_ts=thread_ts)
+                                return
+
+                            # 즉시 슬랙 채널로 수신 확인 피드백 메시지 발송
+                            try:
+                                account_name = os.environ.get("ACCOUNT_NAME", "")
+                                prefix = f"[{account_name}] " if account_name else ""
+                                ack_text = f"🤖 *{prefix}원격 요청 수신 완료* ➔ {task_desc} 작업을 시작합니다! 🚀"
+                                web_client.chat_postMessage(channel=channel_id, text=ack_text)
+                            except Exception as msg_err:
+                                self.logger.warning(f"Slack 수신 답장 발송 실패: {msg_err}")
+
+                            # IPC 디스패치 파일 작성 (동시에 켜진 모든 계정 인스턴스에 동적 원격 전파)
+                            try:
+                                base_dir = os.path.dirname(os.path.abspath(__file__))
+                                dispatch_file = os.path.join(base_dir, "data", "slack_cmd_dispatch.json")
+                                os.makedirs(os.path.dirname(dispatch_file), exist_ok=True)
+                                payload = {
+                                    "cmd_id": f"{time.time()}_{task_name}",
+                                    "task_name": task_name,
+                                    "raw_text": text,
+                                    "timestamp": time.time()
+                                }
+                                with open(dispatch_file, "w", encoding="utf-8") as f:
+                                    json.dump(payload, f, ensure_ascii=False, indent=2)
+                            except Exception as ie:
+                                self.logger.error(f"Slack IPC 디스패치 파일 작성 오류: {ie}")
+
+                socket_client.socket_mode_request_listeners.append(handle_request)
+                socket_client.connect()
+                self.logger.info("DVA 메인 프로그램 내장 Slack 리스너 가동 완료!")
+            except Exception as e:
+                self.logger.error(f"DVA 내장 Slack 리스너 시작 예외: {str(e)}")
+
+        import threading
+        threading.Thread(target=listener_thread, daemon=True).start()
+

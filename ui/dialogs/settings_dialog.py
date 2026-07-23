@@ -240,6 +240,202 @@ class KakaoWizardDialog:
             self.canvas.unbind_all("<MouseWheel>")
 
 
+class SlackWizardDialog:
+    def __init__(self, parent):
+        self.parent = parent
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title("📢 Slack 알림 & 원격 제어 연동 도우미")
+        self.window.geometry("560x780")
+        self.window.configure(bg='#ffffff')
+        self.window.resizable(False, False)
+        
+        self.window.transient(parent)
+        self.window.grab_set()
+        self.window.lift()
+        self.window.focus_force()
+        
+        # Center the window
+        self.window.update_idletasks()
+        w = self.window.winfo_width()
+        h = self.window.winfo_height()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (w // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (h // 2)
+        self.window.geometry(f"+{x}+{y}")
+        
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        header = tk.Frame(self.window, bg='#4a154b', height=85)
+        header.pack(fill='x', side='top')
+        header.pack_propagate(False)
+        
+        tk.Label(
+            header, text="📢 Slack 알림 & 원격 제어 초간편 가이드",
+            font=("맑은 고딕", 15, "bold"), bg='#4a154b', fg='#ffffff'
+        ).pack(pady=(15, 2))
+        
+        tk.Label(
+            header, text="아이폰으로 실시간 알림을 받고 DVA를 원격 제어하는 A to Z 안내입니다.",
+            font=("맑은 고딕", 9), bg='#4a154b', fg='#e8d5e8'
+        ).pack()
+        
+        main_container = tk.Frame(self.window, bg='#ffffff')
+        main_container.pack(fill='both', expand=True, padx=25, pady=15)
+        
+        canvas = tk.Canvas(main_container, bg='#ffffff', highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
+        
+        self.scroll_frame = tk.Frame(canvas, bg='#ffffff')
+        self.scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas_frame = canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
+        
+        def _configure_canvas(event):
+            canvas.itemconfig(canvas_frame, width=event.width)
+        canvas.bind("<Configure>", _configure_canvas)
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self.canvas = canvas
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 1단계
+        self._add_step_card(
+            self.scroll_frame, "1단계: 아이폰 Slack 설치 및 워크스페이스 준비",
+            "1. 아이폰 앱스토어에서 [Slack] 앱을 다운로드하여 설치합니다.\n"
+            "2. 가입 후 '새 워크스페이스 생성' (예: DVA 자동화)을 진행합니다.\n"
+            "3. 알림을 받을 채널(#dva-전체) 대화방을 준비합니다."
+        )
+        
+        # 2단계
+        self._add_step_card(
+            self.scroll_frame, "2단계: 봇 권한(OAuth Scopes) 4가지 추가",
+            "1. 아래 [Slack API 콘솔] 버튼 클릭 ➔ [Create New App] ➔ [From scratch]\n"
+            "2. 좌측 [OAuth & Permissions (OAuth 및 권한)] 메뉴 선택\n"
+            "3. [봇 토큰 범위 (Bot Token Scopes)] ➔ [OAuth 범위 추가] 버튼 클릭하여 4가지 추가:\n"
+            "   • app_mentions:read (앱 멘션 읽기)\n"
+            "   • chat:write (메시지 보내기)\n"
+            "   • channels:history / im:history (대화 수신)",
+            btn_text="🌐 Slack API 콘솔 바로가기",
+            btn_cmd=lambda: self._open_url("https://api.slack.com/apps")
+        )
+        
+        # 3단계
+        self._add_step_card(
+            self.scroll_frame, "3단계: App Home 프로필 등록 ➔ Webhook & Bot Token 복사",
+            "1. 좌측 [App Home] ➔ [Edit] 클릭 ➔ Display Name (`DVA_주하`), Username (`dva_juha`) 입력 ➔ [Add]\n"
+            "2. 좌측 [Incoming Webhooks] ➔ 스위치 [ON] ➔ [Add New Webhook to Workspace] 클릭 후 채널 선택 ➔ [Allow]\n"
+            "3. 생성된 Webhook URL 복사 ➔ DVA 설정창의 [🔗 Webhook URL]에 입력!\n"
+            "4. 좌측 [OAuth & Permissions] ➔ [Bot User OAuth Token] (`xoxb-...`) 복사 ➔ DVA 설정창의 [🤖 Bot Token (xoxb)]에 입력!\n"
+            "   (※ 상단에 'reinstall your app' 노란 띠가 뜨면 파란 링크를 누르고 [Allow] 승인해 주세요)"
+        )
+
+        # 4단계
+        self._add_step_card(
+            self.scroll_frame, "4단계: Socket Mode (App Token 복사) & Event 켜기",
+            "1. 좌측 [Socket Mode] ➔ [Enable Socket Mode] 스위치 클릭!\n"
+            "2. 팝업창에서 Token Name (`dva token`) 입력 ➔ 녹색 [Generate] 클릭 ➔ 나오는 토큰(`xapp-...`) 복사 ➔ DVA 설정창의 [⚡ App Token (xapp)]에 입력 후 [Done] 클릭!\n"
+            "   (💡 토큰 복사를 놓쳤거나 팝업이 안 뜨는 경우: 좌측 [Basic Information] 메뉴 ➔ 중간 [App-Level Tokens] 구역에서 토큰 이름을 클릭하면 언제든 다시 복사할 수 있습니다!)\n"
+            "3. 좌측 [Event Subscriptions] ➔ 스위치 [ON] ➔ [Subscribe to bot events]에 3가지 추가 (`app_mention`, `message.channels`, `message.im`) ➔ [Save Changes] 클릭!\n"
+            "4. 슬랙 채널에서 `/invite @DVA_주하` 입력하여 봇 초대 (1:1 DM은 초대 불필요)"
+        )
+
+        # 5단계
+        self._add_step_card(
+            self.scroll_frame, "5단계: 아이폰 Slack 원격 명령어 사용 가이드",
+            "아이폰 Slack 앱 1:1 대화방(또는 채널)에서 입력해보세요:\n\n"
+            "• 출석체크 / 출석  ➔  자동 출석 체크 실행\n"
+            "• 퀴즈 / 퀴즈풀이  ➔  일일 퀴즈 풀이 진행\n"
+            "• 포인트 / 상태    ➔  현재 포인트 및 상태 조회\n"
+            "• 세미나 / 내일 세미나 ➔ 세미나 목록 및 상세정보 발송\n"
+            "• 배민 / 쿠폰 구매  ➔  포인트 사용 및 쿠폰 구매 진행\n"
+            "• 전체            ➔  출석 + 퀴즈 + 포인트 일괄 자동화"
+        )
+
+        # 5단계: Hermes Agent
+        self._add_step_card(
+            self.scroll_frame, "5단계: Hermes Agent (AI 에이전트) 연동",
+            "AI 에이전트가 자연어로 DVA를 통합 제어할 수 있도록 설정합니다:\n\n"
+            "1. Hermes 에이전트에 SLACK_BOT_TOKEN 및 SLACK_APP_TOKEN 등록\n"
+            "2. docs/hermes_dva_skill.md 스킬 가이드 문서 연결\n"
+            "3. AI에게 '오늘 퀴즈 풀고 포인트 확인해줘'라고 자연어로 자유롭게 지시 가능!",
+            btn_text="📄 Hermes 스킬 가이드 문서 열기",
+            btn_cmd=self._open_hermes_doc
+        )
+        
+        btn_frame = tk.Frame(self.scroll_frame, bg='#ffffff')
+        btn_frame.pack(fill='x', pady=(15, 10))
+        
+        close_btn = tk.Button(
+            btn_frame, text="✅ 확인 완료 (닫기)",
+            font=("맑은 고딕", 12, "bold"), bg='#4a154b', fg='white',
+            activebackground='#3b113c', activeforeground='white',
+            relief='flat', cursor='hand2', padx=10, pady=8,
+            command=self._on_close
+        )
+        close_btn.pack(fill='x')
+        
+    def _add_step_card(self, parent, title, desc, btn_text=None, btn_cmd=None):
+        card = tk.Frame(parent, bg='#f8f9fa', padx=15, pady=12, relief='solid', borderwidth=1)
+        card.pack(fill='x', pady=(0, 12))
+        
+        lbl_title = tk.Label(
+            card, text=title, font=("맑은 고딕", 10, "bold"),
+            bg='#f8f9fa', fg='#2c3e50', justify='left', anchor='w'
+        )
+        lbl_title.pack(fill='x', pady=(0, 5))
+        
+        lbl_desc = tk.Label(
+            card, text=desc, font=("맑은 고딕", 9),
+            bg='#f8f9fa', fg='#555555', justify='left', anchor='w'
+        )
+        lbl_desc.pack(fill='x', pady=(0, 5))
+        
+        def _on_card_configure(event, lt=lbl_title, ld=lbl_desc):
+            wrap_w = event.width - 40
+            if wrap_w > 50:
+                lt.configure(wraplength=wrap_w)
+                ld.configure(wraplength=wrap_w)
+                
+        card.bind("<Configure>", _on_card_configure)
+        
+        if btn_text and btn_cmd:
+            btn = tk.Button(
+                card, text=btn_text, font=("맑은 고딕", 9, "bold"),
+                bg='#4a154b', fg='white', relief='flat', cursor='hand2',
+                padx=10, pady=4, command=btn_cmd
+            )
+            btn.pack(anchor='w', pady=(3, 0))
+            
+    def _open_url(self, url):
+        import webbrowser
+        webbrowser.open(url)
+
+    def _open_hermes_doc(self):
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        doc_path = os.path.join(base_dir, "docs", "hermes_dva_skill.md")
+        if os.path.exists(doc_path):
+            try:
+                os.startfile(doc_path)
+            except Exception:
+                import webbrowser
+                webbrowser.open(doc_path)
+        
+    def _on_close(self):
+        self.canvas.unbind_all("<MouseWheel>")
+        self.window.destroy()
+
+
 class GeminiWizardDialog:
     def __init__(self, parent):
         self.parent = parent
@@ -1182,6 +1378,78 @@ class SettingsDialog:
         
         ToolTip(auth_btn, "최초 1회 인증이 필요하거나, 토큰이 만료되어 알림이 오지 않을 때 클릭하세요.", delay=500)
 
+        # Slack 알림 설정
+        self.setting_vars['slack_notify_enabled'] = tk.BooleanVar(value=self.get_setting('slack_notify_enabled'))
+        self.setting_vars['slack_webhook_url'] = tk.StringVar(value=self.get_setting('slack_webhook_url') or "")
+        self.setting_vars['slack_bot_token'] = tk.StringVar(value=self.get_setting('slack_bot_token') or "")
+        self.setting_vars['slack_app_token'] = tk.StringVar(value=self.get_setting('slack_app_token') or "")
+
+        slack_header_frame = tk.Frame(notify_frame, bg='#f0f0f0')
+        slack_header_frame.pack(fill='x', pady=(10, 0))
+
+        slack_check = tk.Checkbutton(
+            slack_header_frame, text="📢 Slack 알림 받기 (Hermes Agent / Webhook)", variable=self.setting_vars['slack_notify_enabled'],
+            font=("맑은 고딕", 11), bg='#f0f0f0', fg='#2c3e50',
+            activebackground='#f0f0f0', activeforeground='#2c3e50'
+        )
+        slack_check.pack(side='left', pady=(2, 0))
+
+        # Slack 도움말 버튼 추가
+        slack_help_btn = tk.Button(
+            slack_header_frame, text="❓ 도움말", font=("맑은 고딕", 9, "bold"),
+            bg='#f0f0f0', fg='#3498db', relief='flat', cursor='hand2',
+            command=self._show_slack_help, activebackground='#f0f0f0'
+        )
+        slack_help_btn.pack(side='left', padx=5, pady=(4, 0))
+        ToolTip(slack_help_btn, "Slack 알림 설정 및 아이폰 원격 제어 명령어를 확인합니다.")
+
+        slack_url_frame = tk.Frame(notify_frame, bg='#f0f0f0')
+        slack_url_frame.pack(fill='x', padx=25, pady=2)
+
+        lbl_slack_url = tk.Label(slack_url_frame, text="🔗 Webhook URL:", font=("맑은 고딕", 9), bg='#f0f0f0', fg='#2c3e50')
+        lbl_slack_url.pack(side='left')
+
+        slack_url_entry = tk.Entry(slack_url_frame, textvariable=self.setting_vars['slack_webhook_url'], width=35, font=("맑은 고딕", 9))
+        slack_url_entry.pack(side='left', padx=5)
+
+        def _test_slack():
+            from modules.slack_notifier import SlackNotifier
+            url = self.setting_vars['slack_webhook_url'].get()
+            success, msg = SlackNotifier.send_test_message(url)
+            if success:
+                messagebox.showinfo("Slack 알림 테스트", msg, parent=self.settings_window)
+            else:
+                messagebox.showerror("Slack 알림 테스트", msg, parent=self.settings_window)
+
+        slack_test_btn = tk.Button(
+            slack_url_frame, text="🧪 테스트", font=("맑은 고딕", 8),
+            bg='#3498db', fg='white', relief='flat', cursor='hand2',
+            command=_test_slack
+        )
+        slack_test_btn.pack(side='left')
+
+        # 🤖 Bot Token (xoxb-...) 입력 프레임
+        slack_bot_frame = tk.Frame(notify_frame, bg='#f0f0f0')
+        slack_bot_frame.pack(fill='x', padx=25, pady=2)
+
+        lbl_slack_bot = tk.Label(slack_bot_frame, text="🤖 Bot Token (xoxb):", font=("맑은 고딕", 9), bg='#f0f0f0', fg='#2c3e50')
+        lbl_slack_bot.pack(side='left')
+
+        slack_bot_entry = tk.Entry(slack_bot_frame, textvariable=self.setting_vars['slack_bot_token'], width=40, font=("맑은 고딕", 9))
+        slack_bot_entry.pack(side='left', padx=5)
+        ToolTip(slack_bot_entry, "Slack 콘솔 > OAuth & Permissions > Bot User OAuth Token (xoxb-...)을 입력하세요.")
+
+        # ⚡ App Token (xapp-...) 입력 프레임
+        slack_app_frame = tk.Frame(notify_frame, bg='#f0f0f0')
+        slack_app_frame.pack(fill='x', padx=25, pady=2)
+
+        lbl_slack_app = tk.Label(slack_app_frame, text="⚡ App Token (xapp):", font=("맑은 고딕", 9), bg='#f0f0f0', fg='#2c3e50')
+        lbl_slack_app.pack(side='left')
+
+        slack_app_entry = tk.Entry(slack_app_frame, textvariable=self.setting_vars['slack_app_token'], width=40, font=("맑은 고딕", 9))
+        slack_app_entry.pack(side='left', padx=5)
+        ToolTip(slack_app_entry, "Slack 콘솔 > Socket Mode > App-Level Token (xapp-...)을 입력하세요.")
+
         # 5. 포인트 사용 설정 섹션
         baemin_frame = tk.LabelFrame(
             parent, text="💰 포인트 사용 설정", font=("맑은 고딕", 12, "bold"),
@@ -1219,14 +1487,19 @@ class SettingsDialog:
         """카카오톡 알림 설정 도움말 표시 (대화형 비주얼 위저드 창)"""
         KakaoWizardDialog(self.settings_window, self.get_setting, self.save_callback, self.open_browser_func, self)
 
+    def _show_slack_help(self):
+        """Slack 알림 및 원격 제어 설정 도움말 표시 (비주얼 위저드 창)"""
+        SlackWizardDialog(self.settings_window)
+
     def _on_save(self):
         new_settings = {}
         for key, var in self.setting_vars.items():
             if key in ['active_start_ampm', 'active_start_h12', 'active_end_ampm', 'active_end_h12']:
                 continue
             val = var.get()
-            if key in ['baemin_phone', 'gemini_api_key']:
+            if key in ['baemin_phone', 'gemini_api_key', 'slack_webhook_url']:
                 new_settings[key] = str(val).strip()
+
             elif key in ['active_start_m', 'active_end_m']:
                 try: new_settings[key] = int(val)
                 except: new_settings[key] = 0

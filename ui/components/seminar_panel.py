@@ -28,13 +28,13 @@ class SeminarPanel(tk.Frame):
         # 새로고침 멈춤/재개 버튼
         self.seminar_refresh_btn = tk.Button(
             seminar_header_frame,
-            text="⏸ 멈춤",
-            font=("맑은 고딕", 9),
-            bg='#e74c3c',
+            text="🟢 새로고침 중",
+            font=("맑은 고딕", 9, "bold"),
+            bg='#27ae60',
             fg='white',
             relief='flat',
             cursor='hand2',
-            width=7,
+            padx=5,
             command=self._on_toggle_refresh
         )
         self.seminar_refresh_btn.pack(side='right', padx=(0, 10))

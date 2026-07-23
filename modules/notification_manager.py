@@ -9,6 +9,8 @@ import json
 import logging
 from pathlib import Path
 
+from modules.slack_notifier import SlackNotifier
+
 class NotificationManager:
     def __init__(self, settings_path="data/settings.json"):
         # 실행 디렉토리에 상관없이 settings.json을 찾을 수 있도록 절대 경로 구성
@@ -17,9 +19,21 @@ class NotificationManager:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.token_url = "https://kauth.kakao.com/oauth/token"
         self.send_url = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
+        self.slack_notifier = SlackNotifier(settings_path=settings_path)
 
     def _load_settings(self):
-        """설정 파일 로드"""
+        """설정 파일 로드 (ACCOUNT_NAME 환경변수 지원)"""
+        import os
+        account_name = os.environ.get('ACCOUNT_NAME', '').strip()
+        if account_name:
+            acc_path = self.base_dir / "data" / f"settings_{account_name}.json"
+            if acc_path.exists():
+                try:
+                    with open(acc_path, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except Exception as e:
+                    self.logger.error(f"계정별 설정 파일 로드 중 오류 ({acc_path}): {str(e)}")
+
         if not self.settings_path.exists():
             return {}
         try:
@@ -75,8 +89,17 @@ class NotificationManager:
             self.logger.error(f"카카오 토큰 갱신 중 예외 발생: {str(e)}")
             return False
 
+    def send_notification(self, text, category=None):
+        """카카오톡 및 Slack 알림 일괄 전송 디스패처"""
+        kakao_success = self.send_kakao_message(text, category=category)
+        slack_success = self.slack_notifier.send_slack_message(text, category=category)
+        return kakao_success or slack_success
+
     def send_kakao_message(self, text, category=None):
-        """카카오톡 '나에게 보내기' 메시지 전송"""
+        """카카오톡 '나에게 보내기' 메시지 및 활성화 시 Slack 알림 함께 전송"""
+        # Slack 알림도 함께 전송시도
+        self.slack_notifier.send_slack_message(text, category=category)
+
         settings = self._load_settings()
         
         # 1. 전체 알림 비활성화 상태면 중단
@@ -139,3 +162,4 @@ class NotificationManager:
         except Exception as e:
             self.logger.error(f"카카오 메시지 전송 중 예외 발생: {str(e)}")
             return False
+
