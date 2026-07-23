@@ -1652,8 +1652,8 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                 if not settings.get('slack_notify_enabled', False):
                     return
 
-                slack_bot_token = settings.get('slack_bot_token') or os.environ.get("SLACK_BOT_TOKEN", "xoxb-11649655972307-11657869117457-klRsKH448VknFk9msaMVoZ2O")
-                slack_app_token = settings.get('slack_app_token') or os.environ.get("SLACK_APP_TOKEN", "xapp-1-A0BKDJ3D1PE-11649706492979-7702281ae98722cd849255e8324975633c7082c7f682ca332938b1c685a47497")
+                slack_bot_token = settings.get('slack_bot_token') or os.environ.get("SLACK_BOT_TOKEN", "")
+                slack_app_token = settings.get('slack_app_token') or os.environ.get("SLACK_APP_TOKEN", "")
 
                 if not slack_bot_token or not slack_app_token:
                     return
