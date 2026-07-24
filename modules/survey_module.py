@@ -518,6 +518,8 @@ class SurveyModule(BaseModule):
         original_window = None
         self._current_survey_answers = [] # 퀴즈 정답 저장 리스트 초기화
         self._quiz_kakao_sent = False      # 퀴즈 정답 카톡 알림 전송 여부 초기화
+        SurveyModule.pending_answer_queue = [] # 대기열 초기화
+        SurveyModule.current_pending_quiz = None
 
         try:
             # 중복 실행 방지
@@ -1554,6 +1556,21 @@ class SurveyModule(BaseModule):
                         if is_quiz:
                             # 퀴즈 정답 조회 (원본 문제 텍스트로 - get_answer에서 정규화함)
                             quiz_answer = self.problem_manager.get_answer(question_text)
+                            
+                            # 🌟 슬랙 원격 대기열(pending_answer_queue)에 미리 입력받은 정답이 있는지 확인!
+                            queue = getattr(SurveyModule, 'pending_answer_queue', None)
+                            if not quiz_answer and queue:
+                                queued_ans = queue.pop(0)
+                                category_str = ""
+                                try:
+                                    title_text = self.web_automation.driver.title
+                                    matches = re.findall(r'\(([^)]+)\)', title_text)
+                                    if matches: category_str = matches[-1].split('_')[0].strip()
+                                except: pass
+                                self.problem_manager.add_quiz(question_text, queued_ans, category=category_str)
+                                quiz_answer = queued_ans
+                                self.log_success(f"문제 {question_number}번: 슬랙 정답 대기열에서 '{queued_ans}' 차용 및 DB 자동 등록 완료!")
+
                             if quiz_answer:
                                 self.log_success(f"퀴즈 정답 발견: {normalized_question[:40]}... → {quiz_answer}")
                             else:
@@ -1590,15 +1607,24 @@ class SurveyModule(BaseModule):
                                         # [퀴즈] 태그 및 불필요한 별표(*) 제거
                                         display_question = display_question.replace('[퀴즈]', '').replace('*', '').strip()
                                             
+                                        # 슬랙 원격 등록을 위해 대기 중인 퀴즈 정보 공유
+                                        SurveyModule.current_pending_quiz = {
+                                            'question': question_text,
+                                            'display_question': display_question,
+                                            'category': category,
+                                            'question_number': question_number
+                                        }
+
                                         # 람다 함수로 인수 전달 (이미지 없이 정보만 전달)
                                         gui.root.after(0, lambda q=display_question, c=category: gui.open_survey_problem(initial_question=q, initial_category=c, image_path=None))
                                         
-                                        # 카카오톡 알림 전송 (최초 1회)
+                                        # 카카오톡 & 슬랙 알림 전송 (최초 1회)
                                         if hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks:
                                             kakao_msg = (
                                                 f"⚠️ [세미나 퀴즈 정답 미등록]\n"
-                                                f"문제 {question_number}번 정답이 등록되어 있지 않아 대기 중입니다. 프로그램을 확인해 주세요.\n"
-                                                f"Q: {display_question}"
+                                                f"문제 {question_number}번 정답이 등록되어 있지 않아 대기 중입니다.\n"
+                                                f"Q: {display_question}\n\n"
+                                                f"💬 슬랙 채널에 '답 2' 또는 '답 412' (여러 문제 시 순서대로 입력)를 전송하시면 즉시 정답이 등록되고 연속 자동 풀이됩니다!"
                                             )
                                             self.gui_callbacks['notify_kakao'](kakao_msg, cat="notify_survey")
                                         
@@ -1606,27 +1632,30 @@ class SurveyModule(BaseModule):
                                         self.log_info(f"⌛ 문제 {question_number}번 정답이 등록될 때까지 대기합니다...")
                                         
                                         waiting_count = 0
-                                        while True:
-                                            # 세션 유효성 확인
-                                            try:
-                                                _ = self.web_automation.driver.title
-                                            except:
-                                                return False
+                                        try:
+                                            while True:
+                                                # 세션 유효성 확인
+                                                try:
+                                                    _ = self.web_automation.driver.title
+                                                except:
+                                                    return False
 
-                                            time.sleep(1.0)
-                                            waiting_count += 1
-                                            
-                                            # 다시 정답 확인
-                                            self.problem_manager.load_quizzes()
-                                            new_answer = self.problem_manager.get_answer(question_text)
-                                            if new_answer:
-                                                quiz_answer = new_answer
-                                                self.log_success(f"새로운 정답 확인완료, 답변을 계속 진행합니다: {quiz_answer}")
-                                                break
+                                                time.sleep(1.0)
+                                                waiting_count += 1
                                                 
-                                            if waiting_count > 300: # 5분 타임아웃
-                                                self.log_error("대기 시간(5분) 초과로 설문 자동 답변을 중단합니다.")
-                                                return False
+                                                # 다시 정답 확인
+                                                self.problem_manager.load_quizzes()
+                                                new_answer = self.problem_manager.get_answer(question_text)
+                                                if new_answer:
+                                                    quiz_answer = new_answer
+                                                    self.log_success(f"새로운 정답 확인완료, 답변을 계속 진행합니다: {quiz_answer}")
+                                                    break
+                                                    
+                                                if waiting_count > 300: # 5분 타임아웃
+                                                    self.log_error("대기 시간(5분) 초과로 설문 자동 답변을 중단합니다.")
+                                                    return False
+                                        finally:
+                                            SurveyModule.current_pending_quiz = None
                                                 
                             if not quiz_answer:
                                 return False  # 전체 처리 중단 (gui를 열 수 없거나 팝업 이후 대기 타임아웃/오류 발생 시)
@@ -1669,6 +1698,9 @@ class SurveyModule(BaseModule):
                                     # 전략 2: 텍스트 매칭에 실패했거나 정답이 숫자인 경우, 번호(answer_num_val 또는 answer_value)로 선택 (우선순위 2 - Fallback)
                                     if not radio_selected:
                                         target_num = answer_value if answer_value.isdigit() else answer_num_val
+                                        if not target_num and len(radios) == 2:
+                                            if answer_value.upper() == 'O': target_num = '1'
+                                            elif answer_value.upper() == 'X': target_num = '2'
                                         if target_num and target_num.isdigit():
                                             answer_num = int(target_num)
                                             if 1 <= answer_num <= len(radios):

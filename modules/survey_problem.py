@@ -43,13 +43,18 @@ class SurveyProblemManager:
     
     def save_quizzes(self):
         """퀴즈 정보를 파일에 저장합니다."""
-        try:
-            with open(self.quiz_file, 'w', encoding='utf-8') as f:
-                json.dump(self.quiz_answers, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            print(f"퀴즈 저장 실패: {str(e)}")
-            return False
+        for attempt in range(3):
+            try:
+                with open(self.quiz_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.quiz_answers, f, ensure_ascii=False, indent=2)
+                return True
+            except Exception as e:
+                if attempt < 2:
+                    import time
+                    time.sleep(0.1)
+                else:
+                    print(f"퀴즈 저장 실패: {str(e)}")
+                    return False
     
     def add_quiz(self, question: str, answer: str, category: str = "", answer_num: str = ""):
         """

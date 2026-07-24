@@ -1710,7 +1710,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             if any(k in text for k in ["출석", "출석체크", "출체"]):
                                 task_name = "attendance"
                                 task_desc = "📅 출석 체크"
-                            elif any(k in text for k in ["퀴즈", "문제"]):
+                            elif any(k in text for k in ["퀴즈", "문제"]) and not re.search(r'^(?:답|정답)\s*[:=]?', re.sub(r'<@.*?>', '', text).strip(), re.IGNORECASE):
                                 task_name = "quiz"
                                 task_desc = "🧠 일일 퀴즈 풀이"
                             elif any(k in text for k in ["포인트", "잔액", "상태"]):
@@ -1737,6 +1737,61 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 else:
                                     product_keyword = "배달의민족"
                                 task_desc = f"🛵 {product_keyword} {quantity}개 결제"
+                            else:
+                                # 답/정답/제목+숫자 원격 입력 감지 (예: "답 2", "정답 1", "더스피로킷 342", "더스피로킷 3 4 2", "더스피로킷 3,4,2")
+                                clean_t = re.sub(r'<@.*?>', '', text).strip()
+                                ans_match = None
+                                custom_tag = ""
+
+                                # 1차: "답 342", "정답 3 4 2", "더스피로킷 답 342" 등 '답'/'정답' 키워드 포함 시
+                                if re.search(r'(?:답|정답)', clean_t, re.IGNORECASE):
+                                    m_ans = re.search(r'(?:답|정답)\s*[:=]?\s*(.+)$', clean_t, re.IGNORECASE)
+                                    if m_ans:
+                                        ans_match = m_ans
+                                        custom_tag = clean_t[:m_ans.start()].strip()
+
+                                # 2차: "더스피로킷 342", "더스피로킷 4OX", "4OX", "342" 등 텍스트 뒷부분이 숫자/O/X/동그라미숫자로 끝나는 경우
+                                if not ans_match:
+                                    m_ans = re.search(r'([0-9oOxX①-⑩\s,\-번]+)$', clean_t)
+                                    if m_ans and m_ans.group(1).strip():
+                                        ans_match = m_ans
+                                        custom_tag = clean_t[:m_ans.start()].strip()
+
+                                remaining_ans = []
+                                if ans_match:
+                                    raw_ans_str = ans_match.group(1).strip()
+                                    circled_map = {'①': '1', '②': '2', '③': '3', '④': '4', '⑤': '5', '⑥': '6', '⑦': '7', '⑧': '8', '⑨': '9', '⑩': '10'}
+                                    for c, n in circled_map.items():
+                                        raw_ans_str = raw_ans_str.replace(c, f" {n} ")
+                                    parts = [p.strip() for p in re.split(r'[\s,\-]+', raw_ans_str) if p.strip()]
+                                    parsed_answers = []
+                                    for p in parts:
+                                        m = re.match(r'^(\d+)번?$', p)
+                                        if m:
+                                            parsed_answers.append(m.group(1))
+                                        elif p.isdigit():
+                                            # 2~3자리 연속 숫자만 개별 정답(예: 342 -> 3, 4, 2)으로 분할, 4자리 이상(예: 2026, 1000)은 단일값 보존
+                                            if len(parts) == 1 and 1 < len(p) <= 3:
+                                                parsed_answers.extend(list(p))
+                                            else:
+                                                parsed_answers.append(p)
+                                        else:
+                                            # 4OX, 3OX, OX, XO 등 숫자/O/X 혼합 연속 문자열 분할 처리
+                                            if len(parts) == 1 and re.match(r'^[1-9oOxX]{2,4}$', p):
+                                                for char in p:
+                                                    parsed_answers.append(char.upper())
+                                            elif p.upper() in ['O', 'X']:
+                                                parsed_answers.append(p.upper())
+                                            else:
+                                                parsed_answers.append(p)
+                                    if not parsed_answers:
+                                        parsed_answers = [raw_ans_str]
+                                        
+                                    task_name = "answer_registration"
+                                    first_ans = parsed_answers[0]
+                                    remaining_ans = parsed_answers[1:]
+                                    product_keyword = first_ans
+                                    task_desc = f"📝 퀴즈 정답 등록 ('{first_ans}')"
 
                             if not task_name:
                                 # Gemini AI Agent 자연어 의도 파싱 시도
@@ -1747,7 +1802,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             if not task_name:
                                 is_dm = event.get("channel_type") == "im"
                                 if event_type == "app_mention" or is_dm:
-                                    help_msg = "🤖 *[DVA 원격 제어]* `출석체크`, `퀴즈`, `포인트`, `세미나`, `배민/쿠폰` 명령어를 입력해 주세요!"
+                                    help_msg = "🤖 *[DVA 원격 제어]* `출석체크`, `퀴즈`, `포인트`, `세미나`, `배민/쿠폰`, `답 2` 명령어를 입력해 주세요!"
                                     web_client.chat_postMessage(channel=channel_id, text=help_msg, thread_ts=thread_ts)
                                 return
 
@@ -1755,8 +1810,32 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             try:
                                 account_name = os.environ.get("ACCOUNT_NAME", "")
                                 prefix = f"[{account_name}] " if account_name else ""
-                                ack_text = f"🤖 *{prefix}원격 요청 수신 완료* ➔ {task_desc} 작업을 시작합니다! 🚀"
-                                web_client.chat_postMessage(channel=channel_id, text=ack_text)
+                                
+                                should_send_ack = True
+                                if task_name == "answer_registration":
+                                    from modules.survey_module import SurveyModule
+                                    from modules.survey_problem import SurveyProblemManager
+                                    
+                                    if remaining_ans:
+                                        SurveyModule.pending_answer_queue = remaining_ans
+                                        
+                                    pending = getattr(SurveyModule, 'current_pending_quiz', None)
+                                    if pending and pending.get('question'):
+                                        pm = SurveyProblemManager()
+                                        cat = pending.get('category', '') or custom_tag
+                                        pm.add_quiz(pending['question'], product_keyword, category=cat)
+                                        display_q = pending.get('display_question', '')
+                                        tag_info = f" ('{custom_tag}')" if custom_tag else ""
+                                        queue_info = f"\n📋 *다음 미등록 퀴즈 자동 적용 대기열:* `{', '.join(remaining_ans)}`" if remaining_ans else ""
+                                        ack_text = f"✅ *{prefix}퀴즈 정답 등록 완료!{tag_info}* ➔ 문제: \"{display_q}\"\n👉 정답: `{product_keyword}` (으)로 등록하여 풀이를 재개합니다!{queue_info} 🚀"
+                                    else:
+                                        # 대기 중인 퀴즈가 없는 계정인 경우, 다중 계정 메시지 중복 소음을 막기 위해 공용 수신 메시지 전송 생략
+                                        should_send_ack = False
+                                else:
+                                    ack_text = f"🤖 *{prefix}원격 요청 수신 완료* ➔ {task_desc} 작업을 시작합니다! 🚀"
+                                    
+                                if should_send_ack:
+                                    web_client.chat_postMessage(channel=channel_id, text=ack_text)
                             except Exception as msg_err:
                                 self.logger.warning(f"Slack 수신 답장 발송 실패: {msg_err}")
 
@@ -1770,6 +1849,8 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                     "task_name": task_name,
                                     "product_keyword": product_keyword,
                                     "quantity": quantity,
+                                    "answer_val": product_keyword,
+                                    "answer_queue": remaining_ans,
                                     "raw_text": text,
                                     "timestamp": time.time()
                                 }

@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.1"
+VERSION = "v3.9.3"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -1056,6 +1056,21 @@ class DoctorBillApp:
                             p_kw = data.get('product_keyword', '배달의민족')
                             qty = data.get('quantity', 1)
                             self.on_baemin_remote_purchase(product_keyword=p_kw, quantity=qty)
+                        elif task_name == 'answer_registration':
+                            answer_val = data.get('answer_val') or data.get('product_keyword') or ''
+                            answer_queue = data.get('answer_queue') or []
+                            from modules.survey_module import SurveyModule
+                            from modules.survey_problem import SurveyProblemManager
+                            
+                            if answer_queue:
+                                SurveyModule.pending_answer_queue = answer_queue
+                                
+                            pending = getattr(SurveyModule, 'current_pending_quiz', None)
+                            if pending and pending.get('question'):
+                                pm = SurveyProblemManager()
+                                pm.add_quiz(pending['question'], answer_val, category=pending.get('category', ''))
+                                queue_str = f" (대기열: {', '.join(answer_queue)})" if answer_queue else ""
+                                self.log_message(f"✅ [Slack 원격 정답 등록] 정답 '{answer_val}'{queue_str} 등록 완료 (풀이 자동 재개)")
         except Exception as ipc_err:
             self.log_message(f"⚠ Slack IPC 명령 처리 오류: {ipc_err}")
         finally:
