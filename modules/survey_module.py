@@ -701,8 +701,11 @@ class SurveyModule(BaseModule):
                     else:
                         self.log_error(f"⚠️ 세미나 처리 중 오류 ({target['title']}): {err_msg}")
                         
-                        # 진짜 오류인 경우에만 카톡 실패 알림 전송
-                        fail_msg = f"❌ 설문 참여 에러: {target['title']}\n사유: {err_msg}"
+                        # 진짜 오류인 경우에만 실패 알림 전송 (스택트레이스 제외 및 1줄 축약)
+                        clean_err = str(err_msg).split('\n')[0].strip()
+                        if len(clean_err) > 120:
+                            clean_err = clean_err[:120] + "..."
+                        fail_msg = f"❌ 설문 참여 에러: {target['title']}\n사유: {clean_err}"
                         if hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks:
                             self.gui_callbacks['notify_kakao'](fail_msg, cat="notify_error")
                         

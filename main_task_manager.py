@@ -571,7 +571,7 @@ class TaskManager:
             skip_urls = set(self.state._permanently_closed_seminar_urls)  # 복사본 전달
         return self.execute_module_by_config('survey', gui_callbacks, target_url=target_url, target_title=target_title, skip_urls=skip_urls)
     
-    def execute_seminar(self, gui_callbacks):
+    def execute_seminar(self, gui_callbacks, show_dialog=True):
         """라이브 세미나 정보를 확인하고 다이얼로그를 표시합니다."""
         def _run():
             try:
@@ -598,8 +598,8 @@ class TaskManager:
                     gui_callbacks['log_message']("⚠ 세미나 정보를 찾을 수 없습니다.")
                     return
 
-                # UI 스레드에서 다이얼로그 띄우기
-                if 'show_seminar_dialog' in gui_callbacks:
+                # UI 스레드에서 다이얼로그 띄우기 (show_dialog=True일 때만 팝업)
+                if show_dialog and 'show_seminar_dialog' in gui_callbacks:
                     dialog_callbacks = {
                         'on_apply': lambda checked: self._handle_seminar_batch_action(checked, 'apply', gui_callbacks),
                         'on_cancel': lambda checked: self._handle_seminar_batch_action(checked, 'cancel', gui_callbacks),
@@ -609,17 +609,31 @@ class TaskManager:
                     }
                     gui_callbacks['show_seminar_dialog'](seminars, dialog_callbacks)
 
-                # Slack으로 수집된 세미나 목록 요약 발송
+                # Slack으로 수집된 오늘 세미나 목록 요약 발송
                 if seminars:
-                    summary_lines = ["📺 *[닥터빌 세미나 목록]*"]
-                    for s in seminars[:7]:
-                        d = s.get('date', '')
-                        day = s.get('day', '')
-                        tm = s.get('time', '')
-                        t = s.get('title', '')
-                        st = s.get('status', '')
-                        if t:
-                            summary_lines.append(f"• *{d}({day}) {tm}* | {t} (`{st}`)")
+                    import datetime
+                    now_dt = datetime.datetime.now()
+                    today_strs = {
+                        f"{now_dt.month}/{now_dt.day}",
+                        f"{now_dt.month:02d}/{now_dt.day:02d}",
+                        f"{now_dt.month}.{now_dt.day}",
+                        f"{now_dt.month:02d}.{now_dt.day:02d}"
+                    }
+                    today_seminars = [s for s in seminars if s.get('date', '').strip() in today_strs]
+
+                    summary_lines = ["📺 *[오늘 닥터빌 세미나 목록]*"]
+                    if today_seminars:
+                        for s in today_seminars:
+                            d = s.get('date', '')
+                            day = s.get('day', '')
+                            tm = s.get('time', '')
+                            t = s.get('title', '')
+                            st = s.get('status', '')
+                            if t:
+                                summary_lines.append(f"• *{d}({day}) {tm}* | {t} (`{st}`)")
+                    else:
+                        summary_lines.append("• 오늘 예정된 세미나가 없습니다.")
+
                     slack_msg = "\n".join(summary_lines)
                     self.notifier.slack_notifier.send_slack_message(slack_msg)
                 
@@ -1500,12 +1514,18 @@ class TaskManager:
     
     def log_error(self, module_name, error_msg, gui_callbacks):
         """오류 로깅 - 일관된 방식"""
-        message = f"{module_name} 오류: {error_msg}"
-        gui_callbacks['log_and_update_status'](message, message)
+        clean_err = str(error_msg).split('\n')[0].strip()
+        if len(clean_err) > 120:
+            clean_err = clean_err[:120] + "..."
+        
+        short_message = f"{module_name} 오류: {clean_err}"
+        full_message = f"{module_name} 오류: {error_msg}"
+        
+        gui_callbacks['log_and_update_status'](short_message, short_message)
         self.logger.error(f"모듈 실행 오류: {module_name} - {error_msg}")
         
-        # 모든 오류는 중요하므로 알림 전송 (오류 알림 설정에 따름)
-        self.notifier.send_kakao_message(message, category="notify_error")
+        # 알림은 스택트레이스를 제외한 간결한 문장으로 전송
+        self.notifier.send_notification(short_message, category="notify_error")
     
     def handle_special_actions(self, module_name, action_type):
         """모듈별 특별 액션 처리 - 한 곳에서 관리"""

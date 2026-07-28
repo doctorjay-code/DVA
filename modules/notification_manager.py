@@ -96,10 +96,7 @@ class NotificationManager:
         return kakao_success or slack_success
 
     def send_kakao_message(self, text, category=None):
-        """카카오톡 '나에게 보내기' 메시지 및 활성화 시 Slack 알림 함께 전송"""
-        # Slack 알림도 함께 전송시도
-        self.slack_notifier.send_slack_message(text, category=category)
-
+        """카카오톡 '나에게 보내기' 메시지 전송"""
         settings = self._load_settings()
         
         # 1. 전체 알림 비활성화 상태면 중단

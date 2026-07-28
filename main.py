@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.4"
+VERSION = "v3.9.5"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -1047,7 +1047,7 @@ class DoctorBillApp:
                         elif task_name == 'quiz':
                             self.on_quiz()
                         elif task_name == 'seminar':
-                            self.on_seminar_check()
+                            self.task_manager.execute_seminar(gui_callbacks, show_dialog=False)
                         elif task_name == 'survey':
                             self.on_survey_open()
                         elif task_name == 'points':
