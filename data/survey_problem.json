@@ -173,8 +173,9 @@
     "category": "이코사 코디핀"
   },
   "Icosapent ethyl은 REDUCE-IT 연구를 통해 고중성지방혈증 환자에서 심혈관(CV) 사망, 심근경색(MI), 뇌졸중등 심혈관 이벤트의 감소 (위약대비 25%)를 확인 하였습니다": {
-    "answer": "1",
-    "category": "이코사 코디핀"
+    "answer": "O",
+    "category": "이코사 코디핀",
+    "answer_num": "1"
   },
   "오메가3 대비 이코사연질캡슐의 주요 특장점으로 틀린것은 어떤 것 인가요": {
     "answer": "5",
@@ -244,21 +245,6 @@
   "우루사 300mg을 E66.8(기타비만) 상병코드와 jx999(급격한 체중 감소로 담석 예방을 위해 처방) 기입 후, 간수치가 어느 정도 되어야 1일 bid 급여 처방이 가능할까요": {
     "answer": "1",
     "category": "우루사"
-  },
-  "엔블로 0.3mg의 Metformin 병용요법 (ENHANCE-M) 24주 결과로 옳은 설명은 무엇입니까": {
-    "answer": "HbA1c 약 -0.8% 감소 및 60% 이상 목표혈당(<7%) 달성",
-    "category": "엔블로",
-    "answer_num": "1"
-  },
-  "엔블로의 요중 포도당 배설(UGCR)에 대한 설명 중 맞는 것은": {
-    "answer": "Dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가)을 보였다.",
-    "category": "엔블로",
-    "answer_num": "1"
-  },
-  "Metformin + Gemigliptin 병용 환자에서 엔블로 0.3mg 추가(3제 병용)시 확인된 임상 결과로 맞는 것은": {
-    "answer": "Dapagliflozin 대비 유사한 HbA1c 개선 및 66% 목표혈당 달성",
-    "category": "엔블로",
-    "answer_num": "1"
   },
   "AiTiA LVSD의 진단 기준으로 가장 적절한 것은 무엇입니까": {
     "answer": "좌심실 수축기 기능 저하(LVEF ≤40%) 가능성을 선별하는 진단 보조 소프트웨어이다",
@@ -643,5 +629,30 @@
     "answer": "골다공증 고위험군을 조기에 발견하여 추가 검사 및 치료로 연계할 수 있다.",
     "category": "오스테오시그널",
     "answer_num": "4"
+  },
+  "이코사연질캡슐의 성분 및 용량은 Icosapentate ethyl 300mg 입니다. * O X": {
+    "answer": "O",
+    "category": "대웅바이오",
+    "answer_num": "1"
+  },
+  "다음 중 포시다파정의 효능,효과로 틀린 것은 어떤 것인가요? * 2형 당뇨병 만성 심부전 만성 신장병 고중성지방혈증": {
+    "answer": "고중성지방혈증",
+    "category": "대웅바이오",
+    "answer_num": "4"
+  },
+  "엔블로 0.3mg의 Metformin 병용요법(ENHANCE-M) 24주 결과로 옳은 설명은 무엇입니까?* HbA1c 약 -0.8% 감소 및 60% 이상 목표혈당(<7%) 달성 HbA1c 변화 없음 체중만 감소하고 혈당개선 효과는 미미함 모든 환자군 동일 효과": {
+    "answer": "HbA1c 약 -0.8% 감소 및 60% 이상 목표혈당(<7%) 달성",
+    "category": "엔블로",
+    "answer_num": "1"
+  },
+  "엔블로의 요중 포도당 배설(UGCR)에 대한 설명 중 맞는 것은?* Dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가)을 보였다. 신기능 저하군(Stage 2)에서는 UGCR 효과가 없어진다. 장기 연구에서 UGCR이 감소했다. 모든 환자군 동일 UGCR": {
+    "answer": "Dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가)을 보였다.",
+    "category": "엔블로",
+    "answer_num": "1"
+  },
+  "Metformin + Gemigliptin 병용 환자에서 엔블로 0.3mg 추가(3제 병용) 시 확인된 임상 결과로 맞는 것은?* Dapagliflozin 대비 유사한 HbA1c 개선 및 66% 목표혈당 달성 혈당 개선 효과가 나타나지 않았다. 체중만 증가했다. 모든 환자군 동일 효과": {
+    "answer": "Dapagliflozin 대비 유사한 HbA1c 개선 및 66% 목표혈당 달성",
+    "category": "엔블로",
+    "answer_num": "1"
   }
 }

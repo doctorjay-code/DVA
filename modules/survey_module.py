@@ -1733,17 +1733,91 @@ class SurveyModule(BaseModule):
                                                 question_processed = True
                                                 radio_selected = True
                                     
-                                    # 정답을 찾지 못한 경우 첫 번째 선택
+                                    # 정답을 찾지 못한 경우 (보기 매칭 실패 시 임의 1번 찍기 금지 및 정답 입력 대기)
                                     if not radio_selected:
-                                        if not first_input.is_selected():
-                                            first_input.click()
-                                            self.log_warning(f"문제 {question_number}번: 퀴즈 정답 '{answer_value}' 미등록, 첫 번째 옵션 선택")
-                                            question_processed = True
+                                        self.log_warning(f"⚠️ 문제 {question_number}번: 퀴즈 정답 '{answer_value}'이(가) 보기에 없어 매칭에 실패했습니다. (1번으로 찍지 않고 올바른 정답 입력을 대기합니다.)")
+                                        # 매칭 실패 시 수동/슬랙 입력을 대기할 수 있도록 quiz_answer를 해제하여 처리 중단/대기 유도
+                                        radio_selected = False
                                 except Exception as e:
                                     self.log_error(f"문제 {question_number}번 퀴즈 정답 선택 오류: {str(e)}")
-                                    if not first_input.is_selected():
-                                        first_input.click()
-                                        question_processed = True
+                                    radio_selected = False
+                                
+                                # 매칭 실패 시 퀴즈 대기 창 트리거 및 대기
+                                if not radio_selected:
+                                    if hasattr(self, 'gui_callbacks') and 'gui_instance' in self.gui_callbacks:
+                                        gui = self.gui_callbacks['gui_instance']
+                                        if hasattr(gui, 'root') and hasattr(gui, 'open_survey_problem'):
+                                            category = ""
+                                            try:
+                                                title_text = self.web_automation.driver.title
+                                                matches = re.findall(r'\(([^)]+)\)', title_text)
+                                                if matches: category = matches[-1].split('_')[0].strip()
+                                            except: pass
+
+                                            display_question = ""
+                                            for line in question_text.split('\n'):
+                                                cleaned_line = line.strip()
+                                                if cleaned_line:
+                                                    display_question = cleaned_line
+                                                    break
+                                            display_question = re.sub(r'^\d+\.\s*', '', display_question).replace('[퀴즈]', '').replace('*', '').strip()
+
+                                            SurveyModule.current_pending_quiz = {
+                                                'question': question_text,
+                                                'display_question': display_question,
+                                                'category': category,
+                                                'question_number': question_number
+                                            }
+                                            gui.root.after(0, lambda q=display_question, c=category: gui.open_survey_problem(initial_question=q, initial_category=c, image_path=None))
+
+                                            if hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks:
+                                                kakao_msg = (
+                                                    f"⚠️ [세미나 퀴즈 정답 매칭 실패]\n"
+                                                    f"문제 {question_number}번 정답('{answer_value}')이 보기에 없어 대기 중입니다.\n"
+                                                    f"Q: {display_question}\n\n"
+                                                    f"💬 슬랙 채널에 올바른 정답 번호나 텍스트를 입력해 주세요!"
+                                                )
+                                                self.gui_callbacks['notify_kakao'](kakao_msg, cat="notify_survey")
+
+                                            self.log_info(f"⌛ 문제 {question_number}번 올바른 정답이 등록될 때까지 대기합니다...")
+                                            waiting_count = 0
+                                            try:
+                                                while True:
+                                                    try: _ = self.web_automation.driver.title
+                                                    except: return False
+                                                    time.sleep(1.0)
+                                                    waiting_count += 1
+                                                    self.problem_manager.load_quizzes()
+                                                    new_ans = self.problem_manager.get_answer(question_text)
+                                                    if new_ans and str(new_ans).strip() != str(answer_value).strip():
+                                                        self.log_success(f"새로운 정답 확인완료! 답변을 계속 진행합니다: {new_ans}")
+                                                        quiz_answer = new_ans
+                                                        # 재매칭 시도
+                                                        for idx, radio in enumerate(radios):
+                                                            try:
+                                                                opt_txt = self._get_radio_label_text(radio)
+                                                                if opt_txt and (str(new_ans).upper() in opt_txt.upper() or opt_txt.upper() in str(new_ans).upper()):
+                                                                    if not radio.is_selected(): radio.click()
+                                                                    radio_selected = True
+                                                                    question_processed = True
+                                                                    break
+                                                            except: pass
+                                                        if not radio_selected and str(new_ans).isdigit():
+                                                            n = int(new_ans)
+                                                            if 1 <= n <= len(radios):
+                                                                if not radios[n-1].is_selected(): radios[n-1].click()
+                                                                radio_selected = True
+                                                                question_processed = True
+                                                        if radio_selected:
+                                                            break
+                                                    if waiting_count > 300:
+                                                        self.log_error("대기 시간(5분) 초과로 설문 자동 답변을 중단합니다.")
+                                                        return False
+                                            finally:
+                                                SurveyModule.current_pending_quiz = None
+                                                
+                                    if not radio_selected:
+                                        return False
                             else:
                                 # 일반 문제: 첫 번째 옵션 선택
                                 if not first_input.is_selected():

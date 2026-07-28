@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.5"
+VERSION = "v3.9.6"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -192,7 +192,7 @@ class DoctorBillApp:
             'log_and_update_status': self.log_and_update_status,
             'show_seminar_dialog': self.show_seminar_dialog,
             'update_seminar_dialog': self.update_seminar_dialog,
-            'notify_kakao': lambda msg, cat="notify_startup_summary": self.task_manager.notifier.send_kakao_message(msg, category=cat),
+            'notify_kakao': lambda msg, cat="notify_startup_summary": self.task_manager.notifier.send_notification(msg, category=cat),
             'gui_instance': self
         }
 

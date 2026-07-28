@@ -351,8 +351,8 @@ class TaskManager:
                 
                 # 모듈에서 직접 개별 결과를 알림으로 보낼 수 있도록 콜백 추가
                 mod_callbacks = gui_callbacks.copy()
-                mod_callbacks['notify_kakao'] = lambda msg, cat="notify_survey": self.notifier.send_kakao_message(msg, category=cat)
-                mod_callbacks['notify_success'] = lambda msg: self.notifier.send_kakao_message(msg, category="notify_survey")
+                mod_callbacks['notify_kakao'] = lambda msg, cat="notify_survey": self.notifier.send_notification(msg, category=cat)
+                mod_callbacks['notify_success'] = lambda msg: self.notifier.send_notification(msg, category="notify_survey")
                 
                 # 현재 모듈 상태 업데이트 (시스템 로그에만 기록)
                 self.state.current_module = module_name
@@ -784,7 +784,7 @@ class TaskManager:
                                 self.logger.info(f"세미나 종료 감지: {ended_seminars}")
                                 msg = f"📢 세미나 종료 감지: {list(ended_seminars)[0]} 외 {len(ended_seminars)-1}건" if len(ended_seminars) > 1 else f"📢 세미나 종료 감지: {list(ended_seminars)[0]}"
                                 gui_callbacks['log_message'](msg)
-                                self.notifier.send_kakao_message(msg, category="notify_survey")
+                                self.notifier.send_notification(msg, category="notify_survey")
                                 
                                 # 최근 종료 세미나 목록 업데이트
                                 if hasattr(self.state, '_recently_ended_seminars'):
@@ -926,7 +926,7 @@ class TaskManager:
                         kakao_msg = f"{summary_msg}\n\n✅ 이번 자동 신청 ({success}건):\n{titles_str}"
                         
                         try:
-                            self.notifier.send_kakao_message(kakao_msg, category="notify_seminar_join")
+                            self.notifier.send_notification(kakao_msg, category="notify_seminar_join")
                         except Exception as ne:
                             self.logger.error(f"세미나 신청 알림 전송 실패: {ne}")
                         
@@ -1495,11 +1495,11 @@ class TaskManager:
         gui_callbacks['log_and_update_status'](message, message)
         self.logger.info(message)
         
-        # 특정 성공 로그 시 카카오톡 전송
+        # 특정 성공 로그 시 알림 전송 (카카오톡 + Slack)
         if not skip_notify:
             category = self._get_kakao_category(module_name)
             if category:
-                self.notifier.send_kakao_message(message, category=category)
+                self.notifier.send_notification(message, category=category)
     
     def log_failure(self, module_name, gui_callbacks, custom_message=""):
         """실패 로깅 - 일관된 방식"""
@@ -1507,10 +1507,10 @@ class TaskManager:
         gui_callbacks['log_and_update_status'](message, message)
         self.logger.warning(message)
         
-        # 특정 실패 로그 시 카카오톡 전송
+        # 특정 실패 로그 시 알림 전송 (카카오톡 + Slack)
         category = self._get_kakao_category(module_name)
         if category:
-            self.notifier.send_kakao_message(message, category=category)
+            self.notifier.send_notification(message, category=category)
     
     def log_error(self, module_name, error_msg, gui_callbacks):
         """오류 로깅 - 일관된 방식"""
@@ -1790,9 +1790,12 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                     for p in parts:
                                         m = re.match(r'^(\d+)번?$', p)
                                         if m:
-                                            parsed_answers.append(m.group(1))
+                                            digit_val = m.group(1)
+                                            if len(parts) == 1 and 1 < len(digit_val) <= 3:
+                                                parsed_answers.extend(list(digit_val))
+                                            else:
+                                                parsed_answers.append(digit_val)
                                         elif p.isdigit():
-                                            # 2~3자리 연속 숫자만 개별 정답(예: 342 -> 3, 4, 2)으로 분할, 4자리 이상(예: 2026, 1000)은 단일값 보존
                                             if len(parts) == 1 and 1 < len(p) <= 3:
                                                 parsed_answers.extend(list(p))
                                             else:
