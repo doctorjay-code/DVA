@@ -1604,6 +1604,7 @@ class TaskManager:
     def _parse_slack_intent_with_gemini(self, text, api_key):
         """Gemini AI Agent를 이용한 Slack 자연어 의도 해석"""
         try:
+            import requests
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
             prompt = f"""너는 DVA 자동화 시스템의 AI 에이전트야.
 사용자가 Slack에 입력한 자연어 메시지: "{text}"
@@ -1706,6 +1707,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             task_desc = None
                             product_keyword = "배달의민족"
                             quantity = 1
+                            remaining_ans = []
 
                             if any(k in text for k in ["출석", "출석체크", "출체"]):
                                 task_name = "attendance"
