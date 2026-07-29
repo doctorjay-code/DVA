@@ -21,7 +21,8 @@ from modules.base_module import (
 )
 from modules.messages import (
     MSG_SEMINAR_REFRESH, MSG_SEMINAR_AUTO_APPLY_START, MSG_SEMINAR_APPLY_SUCCESS, 
-    MSG_SEMINAR_APPLY_NONE, MSG_SEMINAR_AUTO_ENTER, MSG_POINTS_SUMMARY
+    MSG_SEMINAR_APPLY_NONE, MSG_SEMINAR_AUTO_ENTER, MSG_POINTS_SUMMARY,
+    NotificationTemplates
 )
 from modules.notification_manager import NotificationManager
 
@@ -52,6 +53,8 @@ class TaskManagerState:
         self._startup_time = datetime.now()
         self._is_sleeping = False
         self._prev_active_time_config = None
+        self._last_today_seminar_notice_time = None # 세미나 요약 알림 중복 억제용 시각
+        self._last_today_seminar_hash = "" # 세미나 요약 알림 중복 억제용 해시
     
     @property
     def is_seminar_refresh_paused(self):
@@ -571,7 +574,48 @@ class TaskManager:
             skip_urls = set(self.state._permanently_closed_seminar_urls)  # 복사본 전달
         return self.execute_module_by_config('survey', gui_callbacks, target_url=target_url, target_title=target_title, skip_urls=skip_urls)
     
-    def execute_seminar(self, gui_callbacks, show_dialog=True):
+    def _parse_seminar_target_date(self, text: str):
+        """슬랙 텍스트에서 조회 대상 날짜 정보 추출"""
+        import datetime
+        import re
+        
+        now = datetime.datetime.now()
+        if not text:
+            return "오늘", {f"{now.month}/{now.day}", f"{now.month:02d}/{now.day:02d}", f"{now.month}.{now.day}", f"{now.month:02d}.{now.day:02d}"}
+
+        clean = re.sub(r'<@.*?>', '', text).strip()
+        
+        # 1. 내일 / 모레 / 오늘 키워드
+        if "내일" in clean:
+            target_dt = now + datetime.timedelta(days=1)
+            date_label = f"내일({target_dt.month}/{target_dt.day})"
+            strs = {f"{target_dt.month}/{target_dt.day}", f"{target_dt.month:02d}/{target_dt.day:02d}", f"{target_dt.month}.{target_dt.day}", f"{target_dt.month:02d}.{target_dt.day:02d}"}
+            return date_label, strs
+        elif "모레" in clean:
+            target_dt = now + datetime.timedelta(days=2)
+            date_label = f"모레({target_dt.month}/{target_dt.day})"
+            strs = {f"{target_dt.month}/{target_dt.day}", f"{target_dt.month:02d}/{target_dt.day:02d}", f"{target_dt.month}.{target_dt.day}", f"{target_dt.month:02d}.{target_dt.day:02d}"}
+            return date_label, strs
+        elif "오늘" in clean:
+            date_label = "오늘"
+            strs = {f"{now.month}/{now.day}", f"{now.month:02d}/{now.day:02d}", f"{now.month}.{now.day}", f"{now.month:02d}.{now.day:02d}"}
+            return date_label, strs
+            
+        # 2. 구체적 월/일 파싱 (예: 7/31, 07/31, 7.31, 7월31일)
+        m = re.search(r'(\d{1,2})\s*[/.\s월]\s*(\d{1,2})', clean)
+        if m:
+            month = int(m.group(1))
+            day = int(m.group(2))
+            date_label = f"{month}/{day}"
+            strs = {f"{month}/{day}", f"{month:02d}/{day:02d}", f"{month}.{day}", f"{month:02d}.{day:02d}"}
+            return date_label, strs
+
+        # 지정 날짜가 없으면 기본 오늘
+        date_label = "오늘"
+        strs = {f"{now.month}/{now.day}", f"{now.month:02d}/{now.day:02d}", f"{now.month}.{now.day}", f"{now.month:02d}.{now.day:02d}"}
+        return date_label, strs
+
+    def execute_seminar(self, gui_callbacks, show_dialog=True, target_date_text=None):
         """라이브 세미나 정보를 확인하고 다이얼로그를 표시합니다."""
         def _run():
             try:
@@ -609,33 +653,13 @@ class TaskManager:
                     }
                     gui_callbacks['show_seminar_dialog'](seminars, dialog_callbacks)
 
-                # Slack으로 수집된 오늘 세미나 목록 요약 발송
+                # Slack으로 수집된 세미나 목록 동적 날짜 요약 발송
                 if seminars:
-                    import datetime
-                    now_dt = datetime.datetime.now()
-                    today_strs = {
-                        f"{now_dt.month}/{now_dt.day}",
-                        f"{now_dt.month:02d}/{now_dt.day:02d}",
-                        f"{now_dt.month}.{now_dt.day}",
-                        f"{now_dt.month:02d}.{now_dt.day:02d}"
-                    }
-                    today_seminars = [s for s in seminars if s.get('date', '').strip() in today_strs]
+                    date_label, target_strs = self._parse_seminar_target_date(target_date_text)
+                    target_seminars = [s for s in seminars if s.get('date', '').strip() in target_strs]
 
-                    summary_lines = ["📺 *[오늘 닥터빌 세미나 목록]*"]
-                    if today_seminars:
-                        for s in today_seminars:
-                            d = s.get('date', '')
-                            day = s.get('day', '')
-                            tm = s.get('time', '')
-                            t = s.get('title', '')
-                            st = s.get('status', '')
-                            if t:
-                                summary_lines.append(f"• *{d}({day}) {tm}* | {t} (`{st}`)")
-                    else:
-                        summary_lines.append("• 오늘 예정된 세미나가 없습니다.")
-
-                    slack_msg = "\n".join(summary_lines)
-                    self.notifier.slack_notifier.send_slack_message(slack_msg)
+                    slack_msg = NotificationTemplates.today_seminar_summary(target_seminars, date_label=date_label)
+                    self.notifier.slack_notifier.send_slack_message(slack_msg, raw_text=True)
                 
             except Exception as e:
                 self.logger.error(f"세미나 확인 오류: {str(e)}")
@@ -782,7 +806,7 @@ class TaskManager:
                             ended_seminars = self.state._previous_seminar_titles - current_titles
                             if ended_seminars:
                                 self.logger.info(f"세미나 종료 감지: {ended_seminars}")
-                                msg = f"📢 세미나 종료 감지: {list(ended_seminars)[0]} 외 {len(ended_seminars)-1}건" if len(ended_seminars) > 1 else f"📢 세미나 종료 감지: {list(ended_seminars)[0]}"
+                                msg = NotificationTemplates.seminar_ended_notice(list(ended_seminars))
                                 gui_callbacks['log_message'](msg)
                                 self.notifier.send_notification(msg, category="notify_survey")
                                 
@@ -916,14 +940,8 @@ class TaskManager:
                         msg_original = MSG_SEMINAR_APPLY_SUCCESS.format(count=success)
                         gui_callbacks['log_message'](msg_original)
                         
-                        # 📊 요약 메시지 구성
-                        final_applied = applied_already + success
-                        summary_msg = f"📊 [세미나 요약] 전체: {total}건, 신청완료: {final_applied}건, 신청마감: {closed}건"
-                        gui_callbacks['log_message'](summary_msg)
-                        
-                        # 카톡 알림 구성
-                        titles_str = "\n".join([f"- {t}" for t in applied_titles])
-                        kakao_msg = f"{summary_msg}\n\n✅ 이번 자동 신청 ({success}건):\n{titles_str}"
+                        # 카톡/Slack 알림 구성 (표준 템플릿 사용)
+                        kakao_msg = NotificationTemplates.seminar_apply_summary(total, applied_already, success, closed, applied_titles)
                         
                         try:
                             self.notifier.send_notification(kakao_msg, category="notify_seminar_join")
@@ -1518,7 +1536,7 @@ class TaskManager:
         if len(clean_err) > 120:
             clean_err = clean_err[:120] + "..."
         
-        short_message = f"{module_name} 오류: {clean_err}"
+        short_message = NotificationTemplates.error_alert(module_name, clean_err)
         full_message = f"{module_name} 오류: {error_msg}"
         
         gui_callbacks['log_and_update_status'](short_message, short_message)
@@ -1723,6 +1741,26 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             if not text or not channel_id:
                                 return
 
+                            # 멘션(<@)이 포함된 채널 메시지의 경우 app_mention 이벤트에서만 처리하고 message 이벤트는 스킵 (이중 이벤트 방지)
+                            if event_type == "message" and "<@" in text:
+                                return
+
+                            # 메시지 고유 ID(ts/client_msg_id) 5초 이내 중복 수신 차단
+                            msg_id = event.get("client_msg_id") or thread_ts
+                            now_ts = time.time()
+                            if not hasattr(self, '_processed_slack_msg_timestamps'):
+                                self._processed_slack_msg_timestamps = {}
+                            
+                            # 10초 이상 지난 메시지 ID 찌꺼기 정리
+                            self._processed_slack_msg_timestamps = {
+                                mid: t for mid, t in self._processed_slack_msg_timestamps.items() if now_ts - t < 10
+                            }
+
+                            if msg_id and msg_id in self._processed_slack_msg_timestamps:
+                                return
+                            if msg_id:
+                                self._processed_slack_msg_timestamps[msg_id] = now_ts
+
                             task_name = None
                             task_desc = None
                             product_keyword = "배달의민족"
@@ -1833,9 +1871,6 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
 
                             # 즉시 슬랙 채널로 수신 확인 피드백 메시지 발송
                             try:
-                                account_name = os.environ.get("ACCOUNT_NAME", "")
-                                prefix = f"[{account_name}] " if account_name else ""
-                                
                                 should_send_ack = True
                                 if task_name == "answer_registration":
                                     from modules.survey_module import SurveyModule
@@ -1850,14 +1885,15 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                         cat = pending.get('category', '') or custom_tag
                                         pm.add_quiz(pending['question'], product_keyword, category=cat)
                                         display_q = pending.get('display_question', '')
-                                        tag_info = f" ('{custom_tag}')" if custom_tag else ""
-                                        queue_info = f"\n📋 *다음 미등록 퀴즈 자동 적용 대기열:* `{', '.join(remaining_ans)}`" if remaining_ans else ""
-                                        ack_text = f"✅ *{prefix}퀴즈 정답 등록 완료!{tag_info}* ➔ 문제: \"{display_q}\"\n👉 정답: `{product_keyword}` (으)로 등록하여 풀이를 재개합니다!{queue_info} 🚀"
+                                        ack_text = NotificationTemplates.quiz_answer_ack(display_q, product_keyword, custom_tag, remaining_ans)
                                     else:
                                         # 대기 중인 퀴즈가 없는 계정인 경우, 다중 계정 메시지 중복 소음을 막기 위해 공용 수신 메시지 전송 생략
                                         should_send_ack = False
+                                elif task_name == "seminar":
+                                    # 세미나 조회의 경우 결과 알림 메시지가 곧바로 발송되므로 수신 확인 피드백 중복 발송 생략
+                                    should_send_ack = False
                                 else:
-                                    ack_text = f"🤖 *{prefix}원격 요청 수신 완료* ➔ {task_desc} 작업을 시작합니다! 🚀"
+                                    ack_text = NotificationTemplates.remote_ack(task_desc)
                                     
                                 if should_send_ack:
                                     web_client.chat_postMessage(channel=channel_id, text=ack_text)
@@ -1869,8 +1905,9 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 base_dir = os.path.dirname(os.path.abspath(__file__))
                                 dispatch_file = os.path.join(base_dir, "data", "slack_cmd_dispatch.json")
                                 os.makedirs(os.path.dirname(dispatch_file), exist_ok=True)
+                                unique_msg_key = msg_id if msg_id else f"{int(time.time())}"
                                 payload = {
-                                    "cmd_id": f"{time.time()}_{task_name}",
+                                    "cmd_id": f"{unique_msg_key}_{task_name}",
                                     "task_name": task_name,
                                     "product_keyword": product_keyword,
                                     "quantity": quantity,

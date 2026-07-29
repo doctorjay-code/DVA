@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.6"
+VERSION = "v3.9.7"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -997,8 +997,16 @@ class DoctorBillApp:
                 timestamp = data.get("timestamp", 0)
                 
                 import time
-                if time.time() - timestamp < 15 and cmd_id != getattr(self, '_last_processed_slack_cmd_id', None):
+                now_ts = time.time()
+                task_name_candidate = data.get("task_name")
+                last_task = getattr(self, '_last_processed_slack_task', None)
+                last_task_time = getattr(self, '_last_processed_slack_task_time', 0)
+                is_duplicate_trigger = (now_ts - last_task_time < 3.0) and (last_task == task_name_candidate)
+
+                if now_ts - timestamp < 15 and cmd_id != getattr(self, '_last_processed_slack_cmd_id', None) and not is_duplicate_trigger:
                     self._last_processed_slack_cmd_id = cmd_id
+                    self._last_processed_slack_task = task_name_candidate
+                    self._last_processed_slack_task_time = now_ts
                     
                     raw_text = data.get("raw_text", "")
                     my_account = os.environ.get("ACCOUNT_NAME", "").strip()
@@ -1047,7 +1055,7 @@ class DoctorBillApp:
                         elif task_name == 'quiz':
                             self.on_quiz()
                         elif task_name == 'seminar':
-                            self.task_manager.execute_seminar(gui_callbacks, show_dialog=False)
+                            self.task_manager.execute_seminar(gui_callbacks, show_dialog=False, target_date_text=raw_text)
                         elif task_name == 'survey':
                             self.on_survey_open()
                         elif task_name == 'points':

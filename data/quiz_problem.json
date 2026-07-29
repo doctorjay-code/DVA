@@ -190,21 +190,6 @@
     "answer": "3",
     "category": "세레브레인"
   },
-  "세벨머의 주 성분은 ( )으로 장관에서 인산과 결합하여 체내흡수를 차단하고 배설을 촉진해 혈청 인 수치를 감소시킵니다": {
-    "answer": "Sevelamer carbonate",
-    "category": "세벨머",
-    "answer_num": "3"
-  },
-  "Sevelamer Carbonate(세벨머)는 국제신장학회(KDIGO) 가이드라인에서 제안된 고인산혈증 치료 약물 입니다": {
-    "answer": "비칼슘계",
-    "category": "세벨머",
-    "answer_num": "1"
-  },
-  "Sevelamer Carbonate(세벨머)는 투석을 받는 CKD 환자의 혈청 인 조절에 적응증을 가지고 있습니다": {
-    "answer": "O",
-    "category": "세벨머",
-    "answer_num": "1"
-  },
   "스피틴의 주성분인 Atorvastatin은 CARDS, ASCOT-LLA, SPARCL 임상을 통해 2형 당뇨병, 고혈압, 뇌졸중 환자에서 심혈관계 질환 발생위험을 감소시켰습니다": {
     "answer": "O",
     "category": "스피틴",
@@ -435,5 +420,10 @@
     "answer": "O",
     "category": "리토바젯",
     "answer_num": ""
+  },
+  "Sevelamer Carbonate(세벨머)에 대한 설명으로 틀린것을 선택해주세요.": {
+    "answer": "비칼슘계",
+    "category": "세벨머",
+    "answer_num": "1"
   }
 }

@@ -9,6 +9,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from modules.messages import NotificationTemplates
 
 class SlackNotifier:
     def __init__(self, settings_path="data/settings.json"):
@@ -37,7 +38,7 @@ class SlackNotifier:
             self.logger.error(f"설정 파일 로드 중 오류: {str(e)}")
             return {}
 
-    def send_slack_message(self, text, category=None):
+    def send_slack_message(self, text, category=None, raw_text=False):
         """Slack Webhook으로 메시지 전송"""
         settings = self._load_settings()
 
@@ -54,9 +55,12 @@ class SlackNotifier:
             self.logger.warning("Slack Webhook URL이 설정되지 않아 메시지를 보낼 수 없습니다.")
             return False
 
-        account_name = os.environ.get('ACCOUNT_NAME', '')
-        prefix = f"[{account_name}] " if account_name else ""
-        full_text = f"🔔 *[DVA 알림]* {prefix}\n{text}"
+        # 이미 포맷팅된 메시지이거나 *[DVA 헤더가 있는 경우 중복 헤더 부착 방지
+        if raw_text or "*[DVA" in text:
+            full_text = text
+        else:
+            header = NotificationTemplates.format_header("🔔", "알림")
+            full_text = f"{header}\n{text}"
 
         payload = {
             "text": full_text
@@ -80,10 +84,10 @@ class SlackNotifier:
         if not webhook_url or not webhook_url.strip():
             return False, "Webhook URL을 입력해주세요."
 
-        account_name = os.environ.get('ACCOUNT_NAME', '')
-        prefix = f"[{account_name}] " if account_name else ""
+        account_name = os.environ.get('ACCOUNT_NAME', '').strip()
+        prefix = f" | {account_name}" if account_name else ""
         payload = {
-            "text": f"✅ *[DVA 알림]* {prefix}Slack 알림 연동 테스트 성공!"
+            "text": f"✅ *[DVA{prefix}]* Slack 알림 연동 테스트 성공!"
         }
 
         try:

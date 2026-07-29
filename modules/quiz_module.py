@@ -244,7 +244,20 @@ class QuizModule(BaseModule):
             self.log_warning(f"문제 {index+1}의 정답을 찾을 수 없습니다. 수동 입력을 요청합니다.")
             if self.prompt_single_question_intervention(quiz_data, index):
                 self.problem_manager.load_quizzes()
-                ans = self.problem_manager.get_answer(q_text)
+                raw_ans = self.problem_manager.get_answer(q_text)
+                if raw_ans:
+                    raw_clean = str(raw_ans).strip()
+                    total_q_count = len(quiz_data.get('questions', []))
+                    # '411' 같이 전체 문제 수와 일치하는 연속 숫자를 입력받은 경우 자동 분할 할당 및 DB 저장
+                    if raw_clean.isdigit() and len(raw_clean) == total_q_count and total_q_count > 1:
+                        self.log_info(f"💡 전체 정답 번호 묶음('{raw_clean}') 감지: 문항별로 자동 분할합니다.")
+                        for q_i, q_obj in enumerate(quiz_data['questions']):
+                            char_ans = raw_clean[q_i]
+                            m_q = self.problem_manager.get_matched_question(q_obj['question'])
+                            self.problem_manager.add_quiz(m_q, char_ans, quiz_data['product_info']['title'], answer_num=char_ans)
+                        ans = raw_clean[index]
+                    else:
+                        ans = raw_clean
                 
         # 5. 정답 선택
         if ans:
@@ -659,26 +672,24 @@ class QuizModule(BaseModule):
                     self.log_success(f"정답 텍스트 '{clean_input}'에 매칭되는 보기 번호 발견: '{matched_val}'")
                     correct_val = matched_val
             
-            # 2. 텍스트 매칭에 실패했거나 정답이 숫자인 경우, 정답 번호 기반 Fallback 실행
-            if not correct_val:
-                target_num = clean_input if clean_input.isdigit() else answer_num_val
-                if target_num and target_num.isdigit():
-                    choice_text = get_choice_text_by_value(question, target_num)
-                    if choice_text:
-                        self.log_success(f"정답 번호 '{target_num}'에 매칭되는 보기 텍스트 '{choice_text}'를 획득하여 DB에 자동 업데이트합니다.")
-                        matched_q = self.problem_manager.get_matched_question(question['question'])
-                        self.problem_manager.add_quiz(matched_q, choice_text, "", answer_num=target_num)
-                    correct_val = target_num
-            
-            # 3. 최후의 수단 (매핑 테이블 활용)
+            # 2. clean_input이 숫자(문항 번호)인 경우 번호 매칭 처리
+            if not correct_val and clean_input.isdigit():
+                if clean_input in question.get('choice_values', []):
+                    correct_val = clean_input
+                elif clean_input in VALID_ANSWER_VALUES:
+                    correct_val = clean_input
+
+            # 3. 매핑 테이블 활용 (O/X -> 1/2)
             if not correct_val:
                 clean_upper = clean_input.upper()
-                correct_val = ANSWER_MAPPING.get(clean_upper, clean_upper)
-                if correct_val not in VALID_ANSWER_VALUES:
-                    try:
-                        correct_val = str(int(float(clean_upper)))
-                    except (ValueError, TypeError):
-                        pass
+                correct_val = ANSWER_MAPPING.get(clean_upper, None)
+                if not correct_val and clean_upper in VALID_ANSWER_VALUES:
+                    correct_val = clean_upper
+
+            # 4. 정답 번호 확정 실패 시 임의 찍기 금지 (즉시 실패 리턴)
+            if not correct_val or (question.get('choice_values') and correct_val not in question.get('choice_values')):
+                self.log_error(f"❌ 문제 {question_num}의 정답('{clean_input}')과 일치하는 보기 항목을 찾을 수 없습니다. (임의 선택 안 함)")
+                return False
             
             # 4. 라디오 버튼 선택 (JS 완전 제어 - 팝업 내부 요소 대응)
             try:
@@ -746,7 +757,7 @@ class QuizModule(BaseModule):
 
 
     def click_submit_button(self):
-        """정답 도전 버튼 클릭"""
+        """정답 도전 버튼 클릭 및 결과(오답/성공) 검증"""
         try:
             self.log_info("정답 도전 버튼을 찾는 중...")
             
@@ -760,6 +771,43 @@ class QuizModule(BaseModule):
                 
                 # 결과 처리 대기
                 time.sleep(2)
+                
+                # 🔥 1. Alert(경고창) 발생 여부 검사
+                try:
+                    alert = self.web_automation.driver.switch_to.alert
+                    alert_text = alert.text
+                    self.log_info(f"📢 제출 결과 Alert 메시지: '{alert_text}'")
+                    alert.accept()
+                    time.sleep(0.5)
+                    
+                    if any(kw in alert_text for kw in ["오답", "틀렸", "다시", "실패", "불일치", "아쉽"]):
+                        self.log_error(f"❌ 퀴즈 제출 실패 (오답 알림): {alert_text}")
+                        return False
+                    elif any(kw in alert_text for kw in ["성공", "축하", "완료", "포인트"]):
+                        self.log_success(f"✅ 퀴즈 제출 성공: {alert_text}")
+                        return True
+                except Exception:
+                    pass
+
+                # 🔥 2. 화면/팝업 내 DOM 오답 및 완료 문구 검사
+                try:
+                    res_info = self.web_automation.driver.execute_script("""
+                        var pop = document.getElementById('quizLayerPop') || document.body;
+                        var text = pop ? pop.innerText : '';
+                        var isWrong = text.includes('오답') || text.includes('틀렸') || text.includes('다시 시도') || text.includes('정답이 아닙니다');
+                        var isSuccess = text.includes('축하') || text.includes('성공') || text.includes('완료') || text.includes('내일 다시');
+                        return { isWrong: isWrong, isSuccess: isSuccess };
+                    """)
+                    if res_info:
+                        if res_info.get('isWrong'):
+                            self.log_error("❌ 퀴즈 제출 결과: 오답이 확인되었습니다.")
+                            return False
+                        elif res_info.get('isSuccess'):
+                            self.log_success("✅ 퀴즈 제출 결과: 성공 완료 문구가 확인되었습니다.")
+                            return True
+                except Exception as dom_err:
+                    self.log_warning(f"제출 후 DOM 검사 중 예외 발생: {str(dom_err)}")
+
                 return True
             else:
                 self.log_error("정답 도전 버튼을 찾을 수 없습니다.")
@@ -814,7 +862,24 @@ class QuizModule(BaseModule):
             q_text = q_info['question']
             prod_title = quiz_data['product_info']['title']
             
-            # 1. GUI 호출 (이미지 없이 정보만 전달)
+            # 1. GUI 호출 및 Slack/카카오톡 알림 전송
+            choices_list = q_info.get('choices', [])
+            choices_str = "\n".join([f"  {ch}" for ch in choices_list]) if choices_list else "  (보기 정보 없음)"
+            
+            notify_msg = (
+                f"📢 [일일 퀴즈 정답 수동 입력 요청]\n"
+                f"📌 제품명: {prod_title}\n"
+                f"❓ 문제 {question_index+1}: {q_text}\n"
+                f"📋 보기:\n{choices_str}\n\n"
+                f"👉 정답을 GUI 입력창 또는 Slack으로 입력해 주세요."
+            )
+            
+            if hasattr(self, 'gui_callbacks') and isinstance(self.gui_callbacks, dict):
+                if 'notify_kakao' in self.gui_callbacks:
+                    self.gui_callbacks['notify_kakao'](notify_msg, cat="notify_error")
+                elif 'notify_slack' in self.gui_callbacks:
+                    self.gui_callbacks['notify_slack'](notify_msg)
+            
             if 'on_quiz_problem' in self.gui_callbacks:
                 self.gui_callbacks['on_quiz_problem'](
                     initial_question=q_text,
