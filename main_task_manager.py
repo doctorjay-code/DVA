@@ -44,6 +44,7 @@ class TaskManagerState:
         self._is_seminar_refresh_paused = False
         self._previous_seminar_titles = set()
         self._previous_seminar_urls = {} # 세미나 제목 대 상세 URL 매핑
+        self._previous_seminar_start_times = {} # 세미나 제목 대 방송 시간 매핑
         self._entered_seminar_links = set() # 자동 입장 완료된 링크 저장
         self._entered_seminar_windows = [] # 자동 입장 완료된 창 정보 (handle, enter_time, title, link)
         self._survey_retry_queue = [] # 설문 1분 주기 재시도 대기열
@@ -803,7 +804,23 @@ class TaskManager:
                     if active_settings and active_settings.get('auto_survey'):
                         # 이전 목록이 있고 (첫 실행 제외), 이전에 있던 제목이 현재 없으면 종료로 간주
                         if self.state._previous_seminar_titles:
-                            ended_seminars = self.state._previous_seminar_titles - current_titles
+                            candidate_ended = self.state._previous_seminar_titles - current_titles
+                            ended_seminars = set()
+                            now_time = datetime.now()
+                            for title in candidate_ended:
+                                time_str = getattr(self.state, '_previous_seminar_start_times', {}).get(title, '')
+                                if time_str:
+                                    try:
+                                        start_part = time_str.split('~')[0].strip()
+                                        start_h, start_m = map(int, start_part.split(':'))
+                                        start_dt = now_time.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+                                        if now_time < start_dt:
+                                            self.logger.info(f"세미나 종료 감지 제외 (방송 시작 전: {start_part}): {title}")
+                                            continue
+                                    except Exception:
+                                        pass
+                                ended_seminars.add(title)
+
                             if ended_seminars:
                                 self.logger.info(f"세미나 종료 감지: {ended_seminars}")
                                 msg = NotificationTemplates.seminar_ended_notice(list(ended_seminars))
@@ -890,6 +907,7 @@ class TaskManager:
                     # 이전 목록 갱신 (설정 여부와 상관없이 항상 최신 상태 유지)
                     self.state._previous_seminar_titles = current_titles
                     self.state._previous_seminar_urls = {s.get('title', ''): s.get('detail_link', '') for s in current_seminars if s.get('title')}
+                    self.state._previous_seminar_start_times = {s.get('title', ''): s.get('time', '') for s in current_seminars if s.get('title')}
     
                     if 'update_seminar_dialog' in gui_callbacks:
                         gui_callbacks['update_seminar_dialog'](current_seminars)
