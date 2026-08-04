@@ -641,12 +641,12 @@
     "answer_num": "4"
   },
   "엔블로 0.3mg의 Metformin 병용요법(ENHANCE-M) 24주 결과로 옳은 설명은 무엇입니까?* HbA1c 약 -0.8% 감소 및 60% 이상 목표혈당(<7%) 달성 HbA1c 변화 없음 체중만 감소하고 혈당개선 효과는 미미함 모든 환자군 동일 효과": {
-    "answer": "HbA1c 약 -0.8% 감소 및 60% 이상 목표혈당(<7%) 달성",
+    "answer": "HbA1c 약 –0.8% 감소 및 60% 이상 목표혈당(<7%) 달성",
     "category": "엔블로",
     "answer_num": "1"
   },
   "엔블로의 요중 포도당 배설(UGCR)에 대한 설명 중 맞는 것은?* Dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가)을 보였다. 신기능 저하군(Stage 2)에서는 UGCR 효과가 없어진다. 장기 연구에서 UGCR이 감소했다. 모든 환자군 동일 UGCR": {
-    "answer": "Dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가)을 보였다.",
+    "answer": "dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가) 을 보였다",
     "category": "엔블로",
     "answer_num": "1"
   },
@@ -654,5 +654,20 @@
     "answer": "Dapagliflozin 대비 유사한 HbA1c 개선 및 66% 목표혈당 달성",
     "category": "엔블로",
     "answer_num": "1"
+  },
+  "이번 강의의 핵심 주제와 가장 직접적으로 관련된 제품은 무엇입니까?* 클로아트 (Clopidogrel) 크레젯 (Rosuvastatin/Ezetimibe) 펙수클루 (Fexuprazan) 엔블로 (Enavogliflozin)": {
+    "answer": "클로아트 (Clopidogrel)",
+    "category": "클로아트",
+    "answer_num": "1"
+  },
+  "ACC/ESC 가이드라인에서 공통적으로 클로피도그렐을 P2Y12 억제제 계열 중 우선으로 권고하는 임상적 유용성에 대한 단독 유지요법 전략은 어떤 요법입니까?* STEMI 환자에서 fibrinolysis 이후 최초 부하요법 고령(≥70세) 환자 및 경구용 항응고제(OAC) 병용 환자에서의 단독 유지요법 전략 PCSK9 억제제와의 병용 지질강하 요법 비심장 수술 전 브릿지 요법": {
+    "answer": "고령(≥70세) 환자 및 경구용 항응고제(OAC) 병용 환자에서의 단독 유지요법 전략",
+    "category": "클로아트",
+    "answer_num": "2"
+  },
+  "HOST-EXAM 연구는 어떤 환자군을 대상으로 진행된 연구입니까?* 심방세동으로 OAC를 복용 중인 환자 말초동맥질환으로 혈관 성형술을 받은 환자 PCI 시술 후 DAPT를 완료하고 단일 항혈소판제 유지요법이 필요한 환자 뇌졸중 이후 재활치료를 받는 환자": {
+    "answer": "PCI 시술 후 DAPT를 완료하고 단일 항혈소판제 유지요법이 필요한 환자",
+    "category": "클로아트",
+    "answer_num": "3"
   }
 }

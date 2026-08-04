@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
 from .base_module import BaseModule
 
 # 상수 정의
@@ -293,7 +294,14 @@ class BaeminModule(BaseModule):
                     pass
                 
                 self.log_info("다음 버튼 클릭...")
-                driver.execute_script("document.getElementById('btnPayment').click();")
+                try:
+                    btn_next = driver.find_element(By.ID, "btnPayment")
+                    ActionChains(driver).move_to_element(btn_next).click().perform()
+                    self.log_info("다음 버튼 클릭 완료 (실제 마우스 클릭)")
+                except Exception as e_next:
+                    self.log_warning(f"마우스 클릭 실패, JS 방식으로 재시도: {e_next}")
+                    driver.execute_script("document.getElementById('btnPayment').click();")
+                    self.log_info("다음 버튼 클릭 완료 (JS fallback)")
                 
                 try:
                     WebDriverWait(driver, 5).until(EC.alert_is_present())
@@ -575,8 +583,15 @@ class BaeminModule(BaseModule):
                 if payment_btn:
                     driver.execute_script("arguments[0].scrollIntoView(true);", payment_btn)
                     time.sleep(0.5)
-                    driver.execute_script("arguments[0].click();", payment_btn)
-                    self.log_info("결제하기 버튼 클릭 완료")
+                    # 실제 마우스 클릭으로 결제 (JS inject 방식은 PG사 이벤트 처리와 다를 수 있음)
+                    try:
+                        ActionChains(driver).move_to_element(payment_btn).click().perform()
+                        self.log_info("결제하기 버튼 클릭 완료 (실제 마우스 클릭)")
+                    except Exception as click_err:
+                        # ActionChains 실패 시 JS fallback
+                        self.log_warning(f"마우스 클릭 실패, JS 방식으로 재시도: {click_err}")
+                        driver.execute_script("arguments[0].click();", payment_btn)
+                        self.log_info("결제하기 버튼 클릭 완료 (JS fallback)")
                 else:
                     return self.create_result(False, "결제하기 버튼을 찾을 수 없어 결제를 완료하지 못했습니다.")
                 
