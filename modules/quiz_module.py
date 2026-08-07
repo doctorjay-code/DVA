@@ -106,44 +106,100 @@ class QuizModule(BaseModule):
         return False
 
     def _attempt_quiz(self):
-        """실제 퀴즈 풀기 프로세스 (팝업 열기 -> 수집 -> 풀기 -> 제출)"""
+        """실제 퀴즈 풀기 프로세스
+        한 번에 모든 문제를 확인 후 블로그 1회 검색, 이후 정확한 index로 답변 선택
+        """
         try:
             # 1. 팝업 열기
             if not self.open_quiz_popup():
                 return False
-                
+
             # 2. 🔥 이미 풀었는지 즉시 확인
             if self._is_popup_quiz_solved():
                 self.log_info(MSG_QUIZ_ALREADY)
                 return True
-                
+
             # 3. 정보 수집
             quiz_data = self.collect_quiz_info()
             if not quiz_data:
                 return False
-                
-            # 4. 문제 풀기 (각 문제별 정답 찾기 및 클릭)
+
+            questions = quiz_data['questions']
+            total = len(questions)
+
+            # 4. [1패스] 모든 문제 DB 조회
+            db_answers = {}
+            for i, q_info in enumerate(questions):
+                ans = self._find_answer_in_local_db(q_info['question'])
+                db_answers[i] = ans
+
+            missing = [i for i, a in db_answers.items() if not a]
+            self.log_info(f"📄 DB 조회 결과: {total}개 중 {total - len(missing)}개 확보, {len(missing)}개 미등록 ({[i+1 for i in missing]}번 문제)")
+
+            # 5. [2패스] 미등록 문제 있으면 블로그 1회 검색 (index 0부터 정확히 매핑)
             blog_answers_str = ""
-            blog_searched = False
-            
-            for i, q_info in enumerate(quiz_data['questions']):
-                success, blog_answers_str, blog_searched = self._process_single_question(
-                    q_info, i, quiz_data, blog_answers_str, blog_searched
-                )
-                if not success:
-                    self.log_error(f"문제 {i+1} 풀기 도중 중단됨")
+            if missing:
+                self.log_info("블로그 검색을 수행합니다... (1회만 실행)")
+                initial_handles = set(self.web_automation.driver.window_handles)
+                blog_answers_str = self.try_blog_search() or ""
+                self._close_blog_tab_safely(initial_handles)
+                if blog_answers_str:
+                    self.log_info(f"📨 블로그 정답 추출: '{blog_answers_str}' (총 {len(blog_answers_str)}자)")
+                else:
+                    self.log_warning("블로그에서 정답을 추출하지 못했습니다.")
+
+            # 6. 문제별 최종 정답 확정 (DB 우선, 블로그 보완)
+            final_answers = {}
+            for i in range(total):
+                ans = db_answers.get(i)
+                if not ans and blog_answers_str and i < len(blog_answers_str):
+                    ans = blog_answers_str[i]
+                    self.log_info(f"📨 문제 {i+1} 정답: 블로그 [{i}] = '{ans}'")
+                final_answers[i] = ans
+
+            # 7. 수동 개입 (여전히 없는 문제만)
+            for i, q_info in enumerate(questions):
+                if not final_answers.get(i):
+                    self.log_warning(f"문제 {i+1}의 정답을 찾을 수 없습니다. 수동 입력을 요청합니다.")
+                    if self.prompt_single_question_intervention(quiz_data, i):
+                        self.problem_manager.load_quizzes()
+                        raw_ans = self.problem_manager.get_answer(q_info['question'])
+                        if raw_ans:
+                            raw_clean = str(raw_ans).strip()
+                            # '411' 같이 전체 문제 수와 일치하는 연속 숫자 → 자동 분할
+                            if raw_clean.isdigit() and len(raw_clean) == total and total > 1:
+                                self.log_info(f"💡 전체 정답 묶음('{raw_clean}') 감지: 문항별 자동 분할")
+                                for q_i, q_obj in enumerate(questions):
+                                    char_ans = raw_clean[q_i]
+                                    m_q = self.problem_manager.get_matched_question(q_obj['question'])
+                                    self.problem_manager.add_quiz(m_q, char_ans, quiz_data['product_info']['title'], answer_num=char_ans)
+                                    final_answers[q_i] = char_ans
+                            else:
+                                final_answers[i] = raw_clean
+
+            # 8. 정답 선택
+            for i, q_info in enumerate(questions):
+                ans = final_answers.get(i)
+                if not ans:
+                    self.log_error(f"❌ 문제 {i+1}의 정답을 끝내 확보하지 못했습니다.")
                     return False
-            
-            # 5. 제출 (모든 문제를 푼 후)
-            if not self.click_submit_button():
+                if self.select_single_answer(q_info, ans):
+                    self.log_success(f"✅ 문제 {i+1} 답변 선택 완료: {ans}")
+                else:
+                    self.log_error(f"❌ 문제 {i+1} 답변 선택 실패")
+                    return False
+
+            # 9. 제출
+            submit_result = self.click_submit_button(quiz_data)
+            if not submit_result:
                 return False
-                
-            # 6. 정답 학습 (성공 후 로컬 DB 저장)
+
+            # 10. 성공 시에만 DB 저장
             if blog_answers_str:
                 self.save_to_local_db(quiz_data, blog_answers_str)
-                
+
             return True
-            
+
         except Exception as e:
             self.log_error(f"퀴즈 시도 중 오류: {str(e)}")
             return False
@@ -184,31 +240,31 @@ class QuizModule(BaseModule):
         """일일 퀴즈 풀기 작업 실행 (외부 호출 엔트리 포인트)"""
         is_success = False
         result_msg = ""
-        
+
         try:
             if hasattr(self.web_automation.driver, 'current_window_handle'):
                 self.original_window = self.web_automation.driver.current_window_handle
             self.log_info(MSG_QUIZ_START)
-            
+
             # 1. 퀴즈 페이지 이동
             if not self._navigate_to_quiz_page():
                 self.log_info(MSG_QUIZ_ALREADY)
                 return self.create_result(True, MSG_QUIZ_ALREADY)
-            
+
             # 2. 퀴즈 풀기 시도 (이미 푼 경우 내부적으로 True 반환)
             if self._attempt_quiz():
                 is_success = True
                 result_msg = MSG_QUIZ_SUCCESS
-                # 이미 푼 경우 MSG_QUIZ_ALREADY 로그가 이전에 찍혔을 것임
             else:
                 is_success = False
-                result_msg = "일일 퀴즈 풀기 실패"
-                
+                result_msg = "일일 퀴즈 풀기 실패 (오답 또는 정답 미확보)"
+                self.log_error(f"❌ {result_msg}")
+
         except Exception as e:
             is_success = False
             result_msg = f"퀴즈 실행 중 오류 발생: {str(e)}"
             self.log_error(result_msg)
-            
+
         finally:
             # 🗑️ 블로그 탭 정리 (남아있다면)
             try:
@@ -220,7 +276,7 @@ class QuizModule(BaseModule):
                         self.web_automation.driver.switch_to.window(self.original_window)
             except:
                 pass
-                
+
             return self.create_result(is_success, result_msg)
 
     def _process_single_question(self, q_info, index, quiz_data, blog_answers_str, blog_searched):
@@ -756,32 +812,29 @@ class QuizModule(BaseModule):
         return self.web_automation.driver.execute_script(js_code, radio_selector)
 
 
-    def click_submit_button(self):
+    def click_submit_button(self, quiz_data=None):
         """정답 도전 버튼 클릭 및 결과(오답/성공) 검증"""
         try:
             self.log_info("정답 도전 버튼을 찾는 중...")
-            
-            # 정답 도전 버튼 찾기
+
             submit_button = self.find_element_safe(By.ID, ANSWER_CONFIRM_BUTTON_ID)
-            
+
             if submit_button:
-                # 정답 도전 버튼 클릭
                 submit_button.click()
                 self.log_success("정답 도전 버튼 클릭 완료")
-                
-                # 결과 처리 대기
                 time.sleep(2)
-                
-                # 🔥 1. Alert(경고창) 발생 여부 검사
+
+                # 🔥 1. Alert 발생 여부 검사
                 try:
                     alert = self.web_automation.driver.switch_to.alert
                     alert_text = alert.text
                     self.log_info(f"📢 제출 결과 Alert 메시지: '{alert_text}'")
                     alert.accept()
                     time.sleep(0.5)
-                    
-                    if any(kw in alert_text for kw in ["오답", "틀렸", "다시", "실패", "불일치", "아쉽"]):
+
+                    if any(kw in alert_text for kw in ["오답", "틀렸", "다시", "실패", "불일치", "아쉽", "오바답"]):
                         self.log_error(f"❌ 퀴즈 제출 실패 (오답 알림): {alert_text}")
+                        self._send_wrong_answer_notification(quiz_data, alert_text)
                         return False
                     elif any(kw in alert_text for kw in ["성공", "축하", "완료", "포인트"]):
                         self.log_success(f"✅ 퀴즈 제출 성공: {alert_text}")
@@ -789,32 +842,83 @@ class QuizModule(BaseModule):
                 except Exception:
                     pass
 
-                # 🔥 2. 화면/팝업 내 DOM 오답 및 완료 문구 검사
+                # 🔥 2. 팝업 전체 텍스트 dump 후 오답 감지
                 try:
-                    res_info = self.web_automation.driver.execute_script("""
+                    popup_text = self.web_automation.driver.execute_script("""
                         var pop = document.getElementById('quizLayerPop') || document.body;
-                        var text = pop ? pop.innerText : '';
-                        var isWrong = text.includes('오답') || text.includes('틀렸') || text.includes('다시 시도') || text.includes('정답이 아닙니다');
-                        var isSuccess = text.includes('축하') || text.includes('성공') || text.includes('완료') || text.includes('내일 다시');
-                        return { isWrong: isWrong, isSuccess: isSuccess };
+                        return pop ? pop.innerText : '';
                     """)
-                    if res_info:
-                        if res_info.get('isWrong'):
-                            self.log_error("❌ 퀴즈 제출 결과: 오답이 확인되었습니다.")
-                            return False
-                        elif res_info.get('isSuccess'):
-                            self.log_success("✅ 퀴즈 제출 결과: 성공 완료 문구가 확인되었습니다.")
-                            return True
-                except Exception as dom_err:
-                    self.log_warning(f"제출 후 DOM 검사 중 예외 발생: {str(dom_err)}")
+                    if popup_text:
+                        self.log_info(f"📊 [제출 후 팝업 상태]\n{popup_text[:400]}")
 
+                        wrong_patterns = [
+                            "오답",          # 오답
+                            "틀렸",          # 틀렸습니다
+                            "다시 시도",    # 다시 시도해주세요
+                            "정답이 아닙",  # 정답이 아닙니다
+                            "번 오답",      # 1번 오답, 2번 오답
+                            "오바답",        # 오바답
+                            "wrong",
+                            "incorrect",
+                        ]
+                        success_patterns = [
+                            "축하",
+                            "성공",
+                            "완료",
+                            "내일 다시",
+                            "포인트",
+                        ]
+
+                        is_wrong = any(kw in popup_text for kw in wrong_patterns)
+                        is_success = any(kw in popup_text for kw in success_patterns)
+
+                        if is_wrong:
+                            self.log_error("❌ 퀴즈 제출 결과: 오답 문구 감지!")
+                            # 오답 세부 내용 파싱
+                            import re
+                            wrong_detail = re.findall(r'[\d]+번[^\n]{0,30}오답[^\n]{0,30}', popup_text)
+                            if wrong_detail:
+                                self.log_error(f"오답 세부: {wrong_detail}")
+                            self._send_wrong_answer_notification(quiz_data, f"오답 패턴 감지: {popup_text[:200]}")
+                            return False
+                        elif is_success:
+                            self.log_success("✅ 퀴즈 제출 결과: 성공 문구 확인")
+                            return True
+                        else:
+                            self.log_warning("⚠️ 제출 후 성공/실패 판단 불가 문구 없음. 로그 확인 필요")
+                except Exception as dom_err:
+                    self.log_warning(f"제출 후 DOM 검사 중 예외: {str(dom_err)}")
+
+                # 판단 불가능시 기본 True (성공 추정)
+                self.log_warning("⚠️ 결과 판단 불가 — 성공으로 추정, 복구 로그 확인 필요")
                 return True
             else:
                 self.log_error("정답 도전 버튼을 찾을 수 없습니다.")
                 return False
-                
+
         except Exception as e:
             return self.handle_general_error("정답 도전 버튼 클릭", e)
+
+    def _send_wrong_answer_notification(self, quiz_data, detail_msg=""):
+        """오답 감지 시 카톡/슬랙 알림 전송"""
+        try:
+            if not hasattr(self, 'gui_callbacks') or not isinstance(self.gui_callbacks, dict):
+                return
+            prod_title = ""
+            if quiz_data and isinstance(quiz_data, dict):
+                prod_title = quiz_data.get('product_info', {}).get('title', '')
+            notify_msg = (
+                f"❌ [일일 퀴즈 오답 감지]\n"
+                f"📌 제품명: {prod_title}\n"
+                f"⚠️ {detail_msg}\n"
+                f"👉 DB에 잘못된 정답이 등록되어 있을 수 있습니다. 확인이 필요합니다."
+            )
+            if 'notify_kakao' in self.gui_callbacks:
+                self.gui_callbacks['notify_kakao'](notify_msg, cat="notify_error")
+            elif 'notify_slack' in self.gui_callbacks:
+                self.gui_callbacks['notify_slack'](notify_msg)
+        except Exception as e:
+            self.log_warning(f"오답 알림 전송 중 오류: {str(e)}")
 
 
 
@@ -856,16 +960,16 @@ class QuizModule(BaseModule):
             return False
 
     def prompt_single_question_intervention(self, quiz_data, question_index):
-        """특정 문제 하나에 대해 수동 개입 유도 (단순 대기 방식)"""
+        """특정 문제 하나에 대해 수동 개입 유도 (슬랙 원격 입력 + GUI 대기)"""
         try:
             q_info = quiz_data['questions'][question_index]
             q_text = q_info['question']
             prod_title = quiz_data['product_info']['title']
-            
+
             # 1. GUI 호출 및 Slack/카카오톡 알림 전송
             choices_list = q_info.get('choices', [])
             choices_str = "\n".join([f"  {ch}" for ch in choices_list]) if choices_list else "  (보기 정보 없음)"
-            
+
             notify_msg = (
                 f"📢 [일일 퀴즈 정답 수동 입력 요청]\n"
                 f"📌 제품명: {prod_title}\n"
@@ -873,47 +977,66 @@ class QuizModule(BaseModule):
                 f"📋 보기:\n{choices_str}\n\n"
                 f"👉 정답을 GUI 입력창 또는 Slack으로 입력해 주세요."
             )
-            
+
             if hasattr(self, 'gui_callbacks') and isinstance(self.gui_callbacks, dict):
                 if 'notify_kakao' in self.gui_callbacks:
                     self.gui_callbacks['notify_kakao'](notify_msg, cat="notify_error")
                 elif 'notify_slack' in self.gui_callbacks:
                     self.gui_callbacks['notify_slack'](notify_msg)
-            
+
             if 'on_quiz_problem' in self.gui_callbacks:
                 self.gui_callbacks['on_quiz_problem'](
                     initial_question=q_text,
                     initial_category=prod_title,
-                    image_path=None  # 이미지 경로 제거
+                    image_path=None
                 )
                 self.log_info(f"❓ 문제 {question_index+1} 정답을 입력창에 입력해 주세요.")
-                
-                # 2. 동기식 실시간 루프 대기
+
+                # 2. 동기식 실시간 루프 대기 (GUI 입력 + 슬랙 원격 입력 동시 체크)
                 self.log_info(f"⌛ 정답 등록 대기 중... (최대 10분)")
                 waiting_seconds = 0
                 max_wait = 600
-                
+
                 while waiting_seconds < max_wait:
                     # 🔥 사용자의 작업 중지(취소) 요청 시 루프 강제 탈출 (Graceful Exit)
                     if hasattr(self.web_automation, 'is_running') and not self.web_automation.is_running:
                         self.log_warning("작업 중지 신호 감지: 대기를 강제 종료합니다.")
                         return False
 
-                    try: _ = self.web_automation.driver.title
-                    except: return False
+                    try:
+                        _ = self.web_automation.driver.title
+                    except:
+                        return False
 
                     self.problem_manager.load_quizzes()
                     if self.problem_manager.get_answer(q_text):
                         self.log_success(f"새로운 정답 확인완료 ({waiting_seconds}초 대기함)")
                         return True
-                        
+
+                    # 🔥 슬랙 pending_answer_queue 체크 (설문풀이와 동일한 방식)
+                    try:
+                        pending_queue = getattr(self.web_automation, 'pending_answer_queue', None)
+                        if pending_queue and not pending_queue.empty():
+                            pending_item = pending_queue.get_nowait()
+                            slack_answer = pending_item.get('answer', '').strip() if isinstance(pending_item, dict) else str(pending_item).strip()
+                            if slack_answer:
+                                self.log_info(f"📩 슬랙에서 수신한 퀴즈 정답: '{slack_answer}'")
+                                matched_q = self.problem_manager.get_matched_question(q_text)
+                                self.problem_manager.add_quiz(matched_q, slack_answer, prod_title, answer_num=slack_answer if slack_answer.isdigit() else "")
+                                self.problem_manager.load_quizzes()
+                                if self.problem_manager.get_answer(q_text):
+                                    self.log_success("슬랙 입력 정답 등록 및 확인 완료")
+                                    return True
+                    except Exception as q_err:
+                        self.log_warning(f"슬랙 큐 체크 중 오류 (무시): {str(q_err)}")
+
                     time.sleep(1.0)
                     waiting_seconds += 1
-                
+
                 self.log_warning(f"입력 대기 시간({max_wait}초)이 초과되었습니다.")
             else:
                 self.log_error("GUI 콜백(on_quiz_problem) 누락")
-                
+
         except Exception as e:
             self.log_error(f"수동 개입 유도 오류: {str(e)}")
         return False

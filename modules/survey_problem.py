@@ -141,50 +141,69 @@ class SurveyProblemManager:
         del self.quiz_answers[question]
         return self.save_quizzes()
     
+    def _is_polarity_conflict(self, text_a: str, text_b: str) -> bool:
+        """두 문제 텍스트 간에 긍정/부정 표현이 충돌하는지 확인합니다.
+        예: 한쪽은 '옳지 않은', 반대쪽은 '올바른' → 충돌 → True 반환
+        """
+        negative_keywords = ['않은', '아닌', '잘못된', '틀린', '올바르지 않은', '적절하지 않은', '맞지 않은']
+        positive_keywords = ['올바른', '옳은', '맞는', '적절한', '바른', '알맞은']
+
+        def has_negative(text):
+            return any(kw in text for kw in negative_keywords)
+
+        def has_positive(text):
+            return any(kw in text for kw in positive_keywords)
+
+        a_neg, a_pos = has_negative(text_a), has_positive(text_a)
+        b_neg, b_pos = has_negative(text_b), has_positive(text_b)
+
+        # 한쪽만 부정형이면 충돌
+        if a_neg and not b_neg and b_pos:
+            return True
+        if b_neg and not a_neg and a_pos:
+            return True
+        # 한쪽은 부정형인데 반대쪽은 긍정형도 부정형도 없는 경우는 충돌 아님
+        return False
+
     def get_answer(self, question: str):
         """
         특정 문제의 정답을 가져옵니다.
         저장된 문제가 설문의 문제에 포함되어 있으면 해당 정답을 반환합니다.
-        
+
+        매칭 전략 (안전 우선):
+        1. 완전 일치
+        2. 부분 포함 (DB키 ⊂ 웹문제, 단 DB키 최소 40자 이상) + 긍정/부정 충돌 없을 때
+        ※ 앞 20자 매칭(역방향 추정) 제거 — 오매칭으로 오답 제출 위험
+
         Args:
             question: 문제 텍스트 (설문에서 긁어온 전체 문제 + 선택지)
-        
+
         Returns:
             정답 (없으면 None)
         """
         # 문제 제목 정규화 후 조회
         normalized_question = self._normalize_question(question)
-        
+
         # 1. 완전 일치 먼저 시도
         if normalized_question in self.quiz_answers:
             quiz_data = self.quiz_answers[normalized_question]
-            # 새로운 형식 처리
             if isinstance(quiz_data, dict):
                 return quiz_data.get("answer")
-            # 호환성: 구형식 처리
             else:
                 return quiz_data
-        
-        # 2. 부분 일치: 저장된 문제가 추출된 문제에 포함되어 있는지 확인
+
+        # 2. 부분 포함: DB 키가 웹 문제에 포함 (DB키 최소 40자 이상 + 긍정/부정 충돌 없음)
         for saved_question, quiz_data in self.quiz_answers.items():
-            # 저장된 문제(정규화됨)가 추출된 문제에 포함되어 있는지 확인
-            if saved_question in normalized_question:
+            if len(saved_question) >= 40 and saved_question in normalized_question:
+                # 긍정/부정 충돌 검사
+                if self._is_polarity_conflict(saved_question, normalized_question):
+                    continue
                 if isinstance(quiz_data, dict):
                     return quiz_data.get("answer")
                 else:
                     return quiz_data
-        
-        # 3. 역방향 확인: 추출된 문제의 일부가 저장된 문제에 포함되어 있는지
-        # (추출된 문제가 너무 길 경우 대비)
-        for saved_question, quiz_data in self.quiz_answers.items():
-            # 최소 20자 이상 일치하면 부분 일치로 간주
-            common_length = len(saved_question)
-            if common_length > 20 and saved_question[:20] in normalized_question:
-                if isinstance(quiz_data, dict):
-                    return quiz_data.get("answer")
-                else:
-                    return quiz_data
-        
+
+        # ※ 앞 20자 역방향 매칭 제거 (오매칭으로 3번 기회 소진 위험)
         return None
     
     def get_matched_question(self, question: str) -> str:
@@ -193,22 +212,18 @@ class SurveyProblemManager:
         매칭되는 항목이 없으면 정규화된 질문 텍스트를 반환합니다.
         """
         normalized_question = self._normalize_question(question)
-        
+
         # 1. 완전 일치
         if normalized_question in self.quiz_answers:
             return normalized_question
-            
-        # 2. 부분 일치
+
+        # 2. 부분 포함 (DB키 최소 40자 이상 + 긍정/부정 충돌 없음)
         for saved_question in self.quiz_answers.keys():
-            if saved_question in normalized_question:
-                return saved_question
-                
-        # 3. 역방향 확인
-        for saved_question in self.quiz_answers.keys():
-            common_length = len(saved_question)
-            if common_length > 20 and saved_question[:20] in normalized_question:
-                return saved_question
-                
+            if len(saved_question) >= 40 and saved_question in normalized_question:
+                if not self._is_polarity_conflict(saved_question, normalized_question):
+                    return saved_question
+
+        # ※ 앞 20자 역방향 매칭 제거
         return normalized_question
     
     def get_question_details(self, question: str):
@@ -236,18 +251,14 @@ class SurveyProblemManager:
         # 1. 완전 일치
         if normalized_question in self.quiz_answers:
             return format_details(self.quiz_answers[normalized_question])
-        
-        # 2. 부분 일치
+
+        # 2. 부분 포함 (DB키 최소 40자 이상 + 긍정/부정 충돌 없음)
         for saved_question, quiz_data in self.quiz_answers.items():
-            if saved_question in normalized_question:
-                return format_details(quiz_data)
-        
-        # 3. 역방향 확인
-        for saved_question, quiz_data in self.quiz_answers.items():
-            common_length = len(saved_question)
-            if common_length > 20 and saved_question[:20] in normalized_question:
-                return format_details(quiz_data)
-                
+            if len(saved_question) >= 40 and saved_question in normalized_question:
+                if not self._is_polarity_conflict(saved_question, normalized_question):
+                    return format_details(quiz_data)
+
+        # ※ 앞 20자 역방향 매칭 제거
         return None
     
     def _normalize_question(self, question: str) -> str:

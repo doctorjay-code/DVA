@@ -411,19 +411,24 @@
     "category": "더-스피로킷",
     "answer_num": "2"
   },
-  "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단독 투여 대비 유의하게 TC 및 잔여심혈관인자 (non HDL-C, Apo B, HDL-C)를 현저하게 개선하였다.": {
-    "answer": "O",
-    "category": "리토바젯",
-    "answer_num": ""
-  },
   "이상지질혈증 치료 핵심 키워드는 '\"The Earier is better, The lower is better\" 로 2018 AHA/ACC에는 심혈관계질환 예방을 위해 ( )부터 최적의 지질 수치에 도달해야 된다고 명시하였다.": {
-    "answer": "O",
+    "answer": "빠른 시기(생애 초기)",
     "category": "리토바젯",
-    "answer_num": ""
+    "answer_num": "4"
   },
   "Sevelamer Carbonate(세벨머)에 대한 설명으로 틀린것을 선택해주세요.": {
     "answer": "비칼슘계",
     "category": "세벨머",
     "answer_num": "1"
+  },
+  "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단일제 대비 LDL-C 강하효과를 보였다.": {
+    "answer": "O",
+    "category": "리토바젯",
+    "answer_num": ""
+  },
+  "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단독 투여 대비 유의하게 TC 및 잔여심혈관인자 (non HDL-C, Apo B, HDL-C)를 현저하게 개선하였다.": {
+    "answer": "O",
+    "category": "리토바젯",
+    "answer_num": ""
   }
 }
