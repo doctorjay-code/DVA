@@ -836,7 +836,7 @@ class QuizModule(BaseModule):
                         self.log_error(f"❌ 퀴즈 제출 실패 (오답 알림): {alert_text}")
                         self._send_wrong_answer_notification(quiz_data, alert_text)
                         return False
-                    elif any(kw in alert_text for kw in ["성공", "축하", "완료", "포인트"]):
+                    elif any(kw in alert_text for kw in ["성공", "축하", "퀴즈 완료", "포인트가 지급", "포인트 적립", "지급되었습니다"]):
                         self.log_success(f"✅ 퀴즈 제출 성공: {alert_text}")
                         return True
                 except Exception:
@@ -864,9 +864,11 @@ class QuizModule(BaseModule):
                         success_patterns = [
                             "축하",
                             "성공",
-                            "완료",
+                            "퀴즈 완료",
                             "내일 다시",
-                            "포인트",
+                            "포인트가 지급",
+                            "포인트 적립",
+                            "지급되었습니다",
                         ]
 
                         is_wrong = any(kw in popup_text for kw in wrong_patterns)

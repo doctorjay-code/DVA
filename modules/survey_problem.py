@@ -239,9 +239,10 @@ class SurveyProblemManager:
             else:
                 return quiz_data
 
-        # 2. 부분 포함: DB 키가 웹 문제에 포함 (DB키 최소 40자 이상 + 긍정/부정 충돌 없음)
+        # 2. 부분 포함: DB 키가 웹 문제에 포함 (상대적 유사도 기반, 최소 15자 이상)
         for saved_question, quiz_data in self.quiz_answers.items():
-            if len(saved_question) >= 40 and saved_question in normalized_question:
+            min_len = max(15, int(len(normalized_question) * 0.25))
+            if len(saved_question) >= min_len and saved_question in normalized_question:
                 # 긍정/부정 충돌 검사
                 if self._is_polarity_conflict(saved_question, normalized_question):
                     continue
@@ -264,9 +265,10 @@ class SurveyProblemManager:
         if normalized_question in self.quiz_answers:
             return normalized_question
 
-        # 2. 부분 포함 (DB키 최소 40자 이상 + 긍정/부정 충돌 없음)
+        # 2. 부분 포함 (상대적 유사도 기반, 최소 15자 이상 + 긍정/부정 충돌 없음)
         for saved_question in self.quiz_answers.keys():
-            if len(saved_question) >= 40 and saved_question in normalized_question:
+            min_len = max(15, int(len(normalized_question) * 0.25))
+            if len(saved_question) >= min_len and saved_question in normalized_question:
                 if not self._is_polarity_conflict(saved_question, normalized_question):
                     return saved_question
 
