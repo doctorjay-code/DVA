@@ -1495,6 +1495,88 @@ class SurveyModule(BaseModule):
             self.log_error(f"재시도 중 오류: {str(e)}")
             return False
     
+    def _wait_for_shared_quiz_answer(self, question_text, question_number):
+        """Wait for an answer while allowing only one account to prompt Slack."""
+        if not (hasattr(self, 'gui_callbacks') and 'gui_instance' in self.gui_callbacks):
+            return None
+
+        gui = self.gui_callbacks['gui_instance']
+        if not (hasattr(gui, 'root') and hasattr(gui, 'open_survey_problem')):
+            return None
+
+        prompt_lock_token = None
+        waiting_count = 0
+        try:
+            while waiting_count <= 300:
+                self.problem_manager.load_quizzes()
+                answer = self.problem_manager.get_answer(question_text)
+                if answer:
+                    self.log_success(f"New quiz answer detected; continuing: {answer}")
+                    return answer
+
+                if not prompt_lock_token:
+                    prompt_lock_token = self.problem_manager.acquire_answer_prompt_lock()
+                    if prompt_lock_token:
+                        category = ""
+                        try:
+                            title_text = self.web_automation.driver.title
+                            matches = re.findall(r'\(([^)]+)\)', title_text)
+                            if matches:
+                                category = matches[-1].split('_')[0].strip()
+                        except Exception:
+                            pass
+
+                        display_question = ""
+                        for line in question_text.split('\n'):
+                            if line.strip():
+                                display_question = line.strip()
+                                break
+                        display_question = re.sub(r'^\d+\.\s*', '', display_question)
+                        display_question = display_question.replace('[\ud034\uc988]', '').replace('*', '').strip()
+
+                        SurveyModule.current_pending_quiz = {
+                            'question': question_text,
+                            'display_question': display_question,
+                            'category': category,
+                            'question_number': question_number,
+                        }
+                        self.log_warning(f"Question {question_number}: answer missing; opening the shared problem manager.")
+                        gui.root.after(
+                            0,
+                            lambda q=display_question, c=category, rq=question_text: gui.open_survey_problem(
+                                initial_question=q,
+                                initial_category=c,
+                                image_path=None,
+                                resolution_question=rq,
+                            ),
+                        )
+
+                        if 'notify_kakao' in self.gui_callbacks:
+                            alert = (
+                                "[\uc138\ubbf8\ub098 \ud034\uc988 \uc815\ub2f5 \ubbf8\ub4f1\ub85d]\n"
+                                f"\ubb38\uc81c {question_number}\ubc88\uc758 \uc815\ub2f5\uc744 \uae30\ub2e4\ub9ac\uace0 \uc788\uc2b5\ub2c8\ub2e4.\n"
+                                f"Q: {display_question}\n\n"
+                                "Slack\uc5d0 \uc815\ub2f5\uc744 \uc785\ub825\ud558\uba74 \uc790\ub3d9\uc73c\ub85c \uacc4\uc18d\ud569\ub2c8\ub2e4."
+                            )
+                            self.gui_callbacks['notify_kakao'](alert, cat="notify_survey")
+
+                try:
+                    _ = self.web_automation.driver.title
+                except Exception:
+                    return None
+
+                time.sleep(1.0)
+                waiting_count += 1
+
+            self.log_error("Timed out while waiting for a quiz answer.")
+            return None
+        finally:
+            if prompt_lock_token:
+                self.problem_manager.release_answer_prompt_lock(prompt_lock_token)
+            pending = getattr(SurveyModule, 'current_pending_quiz', None)
+            if pending and pending.get('question') == question_text:
+                SurveyModule.current_pending_quiz = None
+
     def auto_fill_questions_in_order(self):
         """문제 순서대로 하나씩 처리합니다."""
         try:
@@ -1573,6 +1655,11 @@ class SurveyModule(BaseModule):
                                 self.problem_manager.add_quiz(question_text, queued_ans, category=category_str)
                                 quiz_answer = queued_ans
                                 self.log_success(f"문제 {question_number}번: 슬랙 정답 대기열에서 '{queued_ans}' 차용 및 DB 자동 등록 완료!")
+
+                            if not quiz_answer:
+                                quiz_answer = self._wait_for_shared_quiz_answer(question_text, question_number)
+                                if not quiz_answer:
+                                    return False
 
                             if quiz_answer:
                                 self.log_success(f"퀴즈 정답 발견: {normalized_question[:40]}... → {quiz_answer}")

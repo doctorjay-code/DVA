@@ -6,6 +6,8 @@
 
 import json
 import os
+import time
+import uuid
 from pathlib import Path
 
 
@@ -141,6 +143,51 @@ class SurveyProblemManager:
         del self.quiz_answers[question]
         return self.save_quizzes()
     
+    def acquire_answer_prompt_lock(self, stale_after_seconds: int = 360):
+        """Claim the one shared Slack-answer prompt across running accounts."""
+        lock_path = Path("data") / "survey_answer_prompt.lock"
+        token = uuid.uuid4().hex
+        payload = {"token": token, "created_at": time.time()}
+
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                existing = json.loads(lock_path.read_text(encoding="utf-8"))
+                created_at = float(existing.get("created_at", 0))
+                if time.time() - created_at <= stale_after_seconds:
+                    return None
+                lock_path.unlink()
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except (OSError, ValueError, json.JSONDecodeError):
+                return None
+        except OSError:
+            return None
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
+                json.dump(payload, lock_file)
+            return token
+        except OSError:
+            try:
+                lock_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
+
+    def release_answer_prompt_lock(self, token: str):
+        """Release the shared prompt lock only when this process owns it."""
+        if not token:
+            return
+
+        lock_path = Path("data") / "survey_answer_prompt.lock"
+        try:
+            existing = json.loads(lock_path.read_text(encoding="utf-8"))
+            if existing.get("token") == token:
+                lock_path.unlink()
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+
     def _is_polarity_conflict(self, text_a: str, text_b: str) -> bool:
         """두 문제 텍스트 간에 긍정/부정 표현이 충돌하는지 확인합니다.
         예: 한쪽은 '옳지 않은', 반대쪽은 '올바른' → 충돌 → True 반환

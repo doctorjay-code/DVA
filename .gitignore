@@ -228,6 +228,7 @@ data/*.json
 !data/survey_problem.json
 !data/version.json
 data/settings.json
+data/survey_answer_prompt.lock
 
 # 백업 파일들
 backup/

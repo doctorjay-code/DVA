@@ -7,7 +7,13 @@ from tkinter import ttk, messagebox
 import os
 from modules.survey_problem import SurveyProblemManager
 
-def open_survey_problem_manager(parent_window, gui_logger=None, initial_question=None, initial_category=None):
+def open_survey_problem_manager(
+    parent_window,
+    gui_logger=None,
+    initial_question=None,
+    initial_category=None,
+    resolution_question=None,
+):
     """
     세미나 문제 관리 팝업 창을 엽니다.
     
@@ -547,7 +553,7 @@ def open_survey_problem_manager(parent_window, gui_logger=None, initial_question
             if not popup.winfo_exists():
                 return
             problem_manager.load_quizzes()
-            if problem_manager.get_answer(initial_question):
+            if problem_manager.get_answer(resolution_question or initial_question):
                 if gui_logger:
                     gui_logger("ℹ️ 다른 프로세스에서 정답이 등록된 것이 감지되어 문제 관리 창을 자동으로 닫습니다.")
                 popup.destroy()

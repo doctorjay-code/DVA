@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.10"
+VERSION = "v3.9.11"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -220,7 +220,7 @@ class DoctorBillApp:
     def on_survey_problem(self, initial_question=None, initial_category=None, image_path=None):
         self.open_survey_problem(initial_question, initial_category, image_path)
         
-    def open_survey_problem(self, initial_question=None, initial_category=None, image_path=None):
+    def open_survey_problem(self, initial_question=None, initial_category=None, image_path=None, resolution_question=None):
         try:
             from ui.dialogs.survey_problem_dialog import open_survey_problem_manager
             if image_path:
@@ -230,7 +230,13 @@ class DoctorBillApp:
                         try: os.startfile(p)
                         except: pass
             self.log_message("세미나 문제 관리 창을 열고 있습니다...")
-            open_survey_problem_manager(self.root, self.log_message, initial_question, initial_category)
+            open_survey_problem_manager(
+                self.root,
+                self.log_message,
+                initial_question,
+                initial_category,
+                resolution_question=resolution_question,
+            )
         except Exception as e:
             self.log_message(f"❌ 설문 관리자를 열 수 없습니다: {e}")
 

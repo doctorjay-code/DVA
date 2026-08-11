@@ -205,20 +205,6 @@
     "category": "스피틴",
     "answer_num": "1"
   },
-  "시너지아 정의 성분을 고르시오": {
-    "answer": "2",
-    "category": "시너지아정"
-  },
-  "다음 중 시너지아 정의 특장점을 모두 고르시오": {
-    "answer": "모두 해당",
-    "category": "시너지아정",
-    "answer_num": "4"
-  },
-  "다음 중 시너지아 정의 작용기전으로 틀린 것은": {
-    "answer": "부교감신경 말단에서 아세틸콜린의 유리를 촉진하여 소화관 운동을 유발",
-    "category": "시너지아정",
-    "answer_num": "4"
-  },
   "시클러는 인두편도염 치료에 효과적인 항생제입니다. 그렇다면 시클러의 성분은 무엇일까요": {
     "answer": "1",
     "category": "시클러"
@@ -429,6 +415,26 @@
   "리토바젯(Atorvastatin+Ezetimibe)은 Atorvastatin 단독 투여 대비 유의하게 TC 및 잔여심혈관인자 (non HDL-C, Apo B, HDL-C)를 현저하게 개선하였다.": {
     "answer": "O",
     "category": "리토바젯",
+    "answer_num": ""
+  },
+  "대웅징코샷의 성분을 고르시오.": {
+    "answer": "은행엽건조엑스(ginkgo biloba leaf dried extract)",
+    "category": "대웅징코샷정240mg",
+    "answer_num": "2"
+  },
+  "다음 중 시너지아 정의 작용기전으로 틀린 것은": {
+    "answer": "O",
+    "category": "시너지아정",
+    "answer_num": "4"
+  },
+  "다음 중 시너지아 정의 특장점을 모두 고르시오": {
+    "answer": "4",
+    "category": "시너지아정",
+    "answer_num": "4"
+  },
+  "다음 중 시너지아 정의 특장점을 모두 고르시오.": {
+    "answer": "O",
+    "category": "시너지아정",
     "answer_num": ""
   }
 }
