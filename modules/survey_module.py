@@ -518,7 +518,9 @@ class SurveyModule(BaseModule):
         original_window = None
         self._current_survey_answers = [] # 퀴즈 정답 저장 리스트 초기화
         self._quiz_kakao_sent = False      # 퀴즈 정답 카톡 알림 전송 여부 초기화
-        SurveyModule.pending_answer_queue = [] # 대기열 초기화
+        # 대기열은 Slack으로 미리 등록해둔 답이 있을 수 있으므로 유지 (없을 때만 초기화)
+        if not getattr(SurveyModule, 'pending_answer_queue', None):
+            SurveyModule.pending_answer_queue = []
         SurveyModule.current_pending_quiz = None
 
         try:
@@ -1645,16 +1647,21 @@ class SurveyModule(BaseModule):
                             # 🌟 슬랙 원격 대기열(pending_answer_queue)에 미리 입력받은 정답이 있는지 확인!
                             queue = getattr(SurveyModule, 'pending_answer_queue', None)
                             if not quiz_answer and queue:
-                                queued_ans = queue.pop(0)
-                                category_str = ""
-                                try:
-                                    title_text = self.web_automation.driver.title
-                                    matches = re.findall(r'\(([^)]+)\)', title_text)
-                                    if matches: category_str = matches[-1].split('_')[0].strip()
-                                except: pass
-                                self.problem_manager.add_quiz(question_text, queued_ans, category=category_str)
-                                quiz_answer = queued_ans
-                                self.log_success(f"문제 {question_number}번: 슬랙 정답 대기열에서 '{queued_ans}' 차용 및 DB 자동 등록 완료!")
+                                while queue and not quiz_answer:
+                                    queued_ans = queue.pop(0)
+                                    category_str = ""
+                                    try:
+                                        title_text = self.web_automation.driver.title
+                                        matches = re.findall(r'\(([^)]+)\)', title_text)
+                                        if matches: category_str = matches[-1].split('_')[0].strip()
+                                    except: pass
+                                    self.problem_manager.add_quiz(question_text, queued_ans, category=category_str)
+                                    # 실제 채택 여부 재조회 (이미 등록된 정답이 우선되는 경우 해당 답을 폐기하고 다음 대기열 사용)
+                                    quiz_answer = self.problem_manager.get_answer(question_text)
+                                    if quiz_answer:
+                                        self.log_success(f"문제 {question_number}번: 슬랙 정답 대기열에서 '{queued_ans}' 차용 및 DB 자동 등록 완료!")
+                                if not quiz_answer:
+                                    quiz_answer = None
 
                             if not quiz_answer:
                                 quiz_answer = self._wait_for_shared_quiz_answer(question_text, question_number)

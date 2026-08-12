@@ -1892,16 +1892,11 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 should_send_ack = True
                                 if task_name == "answer_registration":
                                     from modules.survey_module import SurveyModule
-                                    from modules.survey_problem import SurveyProblemManager
                                     
-                                    if remaining_ans:
-                                        SurveyModule.pending_answer_queue = remaining_ans
-                                        
+                                    # ✅ 실제 정답 등록/대기열 반영은 main.py의 IPC 폴러에서 단일 수행 (이중 등록 방지)
+                                    #    여기서는 수신 확인 응답 메시지만 구성합니다.
                                     pending = getattr(SurveyModule, 'current_pending_quiz', None)
                                     if pending and pending.get('question'):
-                                        pm = SurveyProblemManager()
-                                        cat = pending.get('category', '') or custom_tag
-                                        pm.add_quiz(pending['question'], product_keyword, category=cat)
                                         display_q = pending.get('display_question', '')
                                         ack_text = NotificationTemplates.quiz_answer_ack(display_q, product_keyword, custom_tag, remaining_ans)
                                     else:

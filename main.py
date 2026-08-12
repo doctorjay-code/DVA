@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.13"
+VERSION = "v3.9.14"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -1076,15 +1076,25 @@ class DoctorBillApp:
                             from modules.survey_module import SurveyModule
                             from modules.survey_problem import SurveyProblemManager
                             
-                            if answer_queue:
-                                SurveyModule.pending_answer_queue = answer_queue
-                                
+                            # ✅ 단일 등록 경로: 첫 답 + 나머지 모두 보존 (이중 등록 방지)
+                            #    대기 중 문제가 있으면 첫 답은 해당 문제에 즉시 등록하고,
+                            #    없으면 첫 답을 포함한 전체 답을 대기열에 보존하여 유실 방지.
                             pending = getattr(SurveyModule, 'current_pending_quiz', None)
-                            if pending and pending.get('question'):
+                            all_answers = [a for a in ([answer_val] + list(answer_queue)) if a]
+                            
+                            if pending and pending.get('question') and answer_val:
                                 pm = SurveyProblemManager()
                                 pm.add_quiz(pending['question'], answer_val, category=pending.get('category', ''))
-                                queue_str = f" (대기열: {', '.join(answer_queue)})" if answer_queue else ""
-                                self.log_message(f"✅ [Slack 원격 정답 등록] 정답 '{answer_val}'{queue_str} 등록 완료 (풀이 자동 재개)")
+                                queued = list(answer_queue)
+                            else:
+                                queued = all_answers
+                            
+                            if queued:
+                                existing = list(getattr(SurveyModule, 'pending_answer_queue', None) or [])
+                                SurveyModule.pending_answer_queue = existing + queued
+                            
+                            queue_str = f" (대기열: {', '.join(queued)})" if queued else ""
+                            self.log_message(f"✅ [Slack 원격 정답 등록] 정답 '{answer_val}'{queue_str} 등록/대기열 반영 완료")
         except Exception as ipc_err:
             self.log_message(f"⚠ Slack IPC 명령 처리 오류: {ipc_err}")
         finally:
