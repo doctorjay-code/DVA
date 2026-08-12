@@ -190,6 +190,7 @@ class QuizModule(BaseModule):
                     return False
 
             # 9. 제출
+            quiz_data['submitted_answers'] = final_answers  # 찍은 답 저장 (슬랙 알림용)
             submit_result = self.click_submit_button(quiz_data)
             if not submit_result:
                 return False
@@ -834,19 +835,35 @@ class QuizModule(BaseModule):
 
                     if any(kw in alert_text for kw in ["오답", "틀렸", "다시", "실패", "불일치", "아쉽", "오바답"]):
                         self.log_error(f"❌ 퀴즈 제출 실패 (오답 알림): {alert_text}")
-                        self._send_wrong_answer_notification(quiz_data, alert_text)
+                        self._send_quiz_result_notification(quiz_data, False, alert_text)
                         return False
                     elif any(kw in alert_text for kw in ["성공", "축하", "퀴즈 완료", "포인트가 지급", "포인트 적립", "지급되었습니다"]):
                         self.log_success(f"✅ 퀴즈 제출 성공: {alert_text}")
+                        self._send_quiz_result_notification(quiz_data, True, alert_text)
                         return True
                 except Exception:
                     pass
 
-                # 🔥 2. 팝업 전체 텍스트 dump 후 오답 감지
+                # 🔥 2. 팝업/모달 전체 텍스트 dump 후 오답 감지
                 try:
                     popup_text = self.web_automation.driver.execute_script("""
-                        var pop = document.getElementById('quizLayerPop') || document.body;
-                        return pop ? pop.innerText : '';
+                        // 1차: quizLayerPop 요소 확인
+                        var pop = document.getElementById('quizLayerPop');
+                        var texts = [];
+                        if (pop && pop.innerText.trim()) {
+                            texts.push(pop.innerText);
+                        }
+                        // 2차: 모든 모달/다이얼로그/안내 팝업 확인 (z-index 높은 순서)
+                        var modals = document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="dialog"], [class*="layer"], [role="dialog"], .alert, [class*="notice"], [class*="info"]');
+                        modals.forEach(function(el) {
+                            var style = window.getComputedStyle(el);
+                            if (style.display !== 'none' && style.visibility !== 'hidden' && el.innerText.trim()) {
+                                texts.push(el.innerText);
+                            }
+                        });
+                        // 3차: body 전체 텍스트에서 키워드 검색용
+                        var bodyText = document.body.innerText || '';
+                        return texts.join('\\n---\\n') + '\\n===BODY===\\n' + bodyText;
                     """)
                     if popup_text:
                         self.log_info(f"📊 [제출 후 팝업 상태]\n{popup_text[:400]}")
@@ -862,6 +879,7 @@ class QuizModule(BaseModule):
                             "incorrect",
                         ]
                         success_patterns = [
+                            "정답입니다",   # 안내 모달: "정답입니다."
                             "축하",
                             "성공",
                             "퀴즈 완료",
@@ -881,10 +899,43 @@ class QuizModule(BaseModule):
                             wrong_detail = re.findall(r'[\d]+번[^\n]{0,30}오답[^\n]{0,30}', popup_text)
                             if wrong_detail:
                                 self.log_error(f"오답 세부: {wrong_detail}")
-                            self._send_wrong_answer_notification(quiz_data, f"오답 패턴 감지: {popup_text[:200]}")
+                            # 오답 모달 확인 버튼 클릭
+                            try:
+                                self.web_automation.driver.execute_script("""
+                                    var btns = document.querySelectorAll('button, a, input[type="button"]');
+                                    for (var i = 0; i < btns.length; i++) {
+                                        var txt = btns[i].innerText || btns[i].value || '';
+                                        if (txt.includes('확인')) {
+                                            btns[i].click();
+                                            break;
+                                        }
+                                    }
+                                """)
+                                self.log_info("✅ 오답 모달 확인 버튼 클릭 완료")
+                            except Exception as btn_err:
+                                self.log_warning(f"오답 모달 확인 버튼 클릭 중 오류: {str(btn_err)}")
+                            self._send_quiz_result_notification(quiz_data, False, f"오답 패턴 감지: {popup_text[:200]}")
                             return False
                         elif is_success:
                             self.log_success("✅ 퀴즈 제출 결과: 성공 문구 확인")
+                            self._send_quiz_result_notification(quiz_data, True)
+                            # 확인 버튼 클릭 (모달 닫기)
+                            try:
+                                confirm_btn = self.web_automation.driver.execute_script("""
+                                    var btns = document.querySelectorAll('button, a, input[type="button"]');
+                                    for (var i = 0; i < btns.length; i++) {
+                                        var txt = btns[i].innerText || btns[i].value || '';
+                                        if (txt.includes('확인')) {
+                                            btns[i].click();
+                                            return 'CONFIRM_CLICK_OK';
+                                        }
+                                    }
+                                    return 'CONFIRM_NOT_FOUND';
+                                """)
+                                if confirm_btn == 'CONFIRM_CLICK_OK':
+                                    self.log_info("✅ 성공 모달 확인 버튼 클릭 완료")
+                            except Exception as btn_err:
+                                self.log_warning(f"확인 버튼 클릭 중 오류: {str(btn_err)}")
                             return True
                         else:
                             self.log_warning("⚠️ 제출 후 성공/실패 판단 불가 문구 없음. 로그 확인 필요")
@@ -922,7 +973,46 @@ class QuizModule(BaseModule):
         except Exception as e:
             self.log_warning(f"오답 알림 전송 중 오류: {str(e)}")
 
+    def _send_quiz_result_notification(self, quiz_data, is_success, detail_msg=""):
+        """퀴즈 풀이 결과를 슬랙로 전송 (찍은 답 포함)"""
+        try:
+            if not hasattr(self, 'gui_callbacks') or not isinstance(self.gui_callbacks, dict):
+                return
+            if 'notify_slack' not in self.gui_callbacks:
+                return
 
+            prod_title = ""
+            submitted_answers = {}
+            if quiz_data and isinstance(quiz_data, dict):
+                prod_title = quiz_data.get('product_info', {}).get('title', '')
+                submitted_answers = quiz_data.get('submitted_answers', {})
+
+            # 찍은 답 문자열로 변환
+            if submitted_answers:
+                answers_str = "".join([str(submitted_answers.get(i, '?')) for i in range(len(submitted_answers))])
+            else:
+                answers_str = "모름"
+
+            if is_success:
+                notify_msg = (
+                    f"✅ [일일 퀴즈 성공]\n"
+                    f"📌 제품명: {prod_title}\n"
+                    f"📝 찍은 답: {answers_str}\n"
+                    f"🎉 포인트 500P 적립 완료"
+                )
+            else:
+                notify_msg = (
+                    f"❌ [일일 퀴즈 오답]\n"
+                    f"📌 제품명: {prod_title}\n"
+                    f"📝 찍은 답: {answers_str}\n"
+                    f"⚠️ {detail_msg}\n\n"
+                    f"💬 새 답을 입력하시면 DB 업데이트 후 재시도합니다.\n"
+                    f"   예: 답 123 또는 답 OXO"
+                )
+
+            self.gui_callbacks['notify_slack'](notify_msg)
+        except Exception as e:
+            self.log_warning(f"퀴즈 결과 알림 전송 중 오류: {str(e)}")
 
     def save_to_local_db(self, quiz_data, extracted_answer):
         """새로 알아낸 정답을 로컬 DB에 자동 저장 (학습)"""
