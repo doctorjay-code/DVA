@@ -9,6 +9,7 @@ import os
 import json
 import re
 from datetime import datetime
+from urllib.parse import quote_plus
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -16,9 +17,10 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from .base_module import BaseModule
 
 class BlogSearchModule(BaseModule):
-    def __init__(self, web_automation, gui_logger=None):
+    def __init__(self, web_automation, gui_logger=None, expected_product_title=None):
         super().__init__(web_automation, gui_logger)
         self.extracted_answer = None  # 추출된 정답 저장
+        self.expected_product_title = (expected_product_title or '').strip()
     
     def get_extracted_answer(self):
         """추출된 정답 반환"""
@@ -35,10 +37,14 @@ class BlogSearchModule(BaseModule):
             self.log_info(f"검색할 날짜: {current_date}")
             
             # 블로그 검색 URL 생성 (닥터빌 키워드 추가)
-            blog_search_url = f"https://blog.naver.com/PostSearchList.naver?SearchText={current_date}+닥터빌&blogId=doump1004"
-            
-            self.log_info(f"블로그 검색 URL: {blog_search_url}")
-            
+            # 날짜가 같은 다른 제품 글을 피하기 위해 제품명을 검색어에 포함한다.
+            search_terms = f"{current_date} 닥터빌 {self.expected_product_title}".strip()
+            blog_search_url = (
+                "https://blog.naver.com/PostSearchList.naver?SearchText="
+                f"{quote_plus(search_terms)}&blogId=doump1004"
+            )
+            self.log_info(f"📌 [블로그 탐색] 기대 제품명: {self.expected_product_title or '미지정'}")
+            self.log_info(f"📌 [블로그 탐색] 검색 URL: {blog_search_url}")
             # 새 탭에서 페이지 열기
             if self.open_in_new_tab(blog_search_url):
                 self.log_info("블로그 검색 페이지 처리 완료")
@@ -116,6 +122,17 @@ class BlogSearchModule(BaseModule):
             self.log_error(f"새 탭에서 페이지 열기 실패: {str(e)}")
             return False
     
+    def _is_expected_product_in_title(self, title):
+        """선택 게시물 제목이 현재 퀴즈 제품명과 일치하는지 확인한다."""
+        expected = re.sub(r'[^0-9a-z가-힣]+', '', self.expected_product_title.lower())
+        actual = re.sub(r'[^0-9a-z가-힣]+', '', (title or '').lower())
+        if not expected:
+            return False
+        if expected in actual:
+            return True
+        core_name = re.sub(r'\d.*$', '', expected)
+        return bool(core_name and len(core_name) >= 2 and core_name in actual)
+
     def click_first_post(self):
         """첫 번째 게시글 클릭"""
         try:
@@ -129,9 +146,14 @@ class BlogSearchModule(BaseModule):
             
             if first_post_link:
                 # 링크 텍스트 확인 (디버깅용)
-                link_text = first_post_link.text
-                self.log_info(f"첫 번째 게시글 제목: {link_text}")
-                
+                link_text = first_post_link.text.strip()
+                self.log_info(f"📌 [블로그 탐색] 선택 게시물 제목: {link_text}")
+                if not self._is_expected_product_in_title(link_text):
+                    self.log_error(
+                        f"❌ [블로그 탐색] 제품명 불일치: 기대 '{self.expected_product_title or '미지정'}', "
+                        f"선택 글 '{link_text}'. 답안 사용을 중단합니다."
+                    )
+                    return False
                 # 현재 탭 핸들 저장 (검색 결과 페이지)
                 search_tab = self.web_automation.driver.current_window_handle
                 
@@ -161,7 +183,7 @@ class BlogSearchModule(BaseModule):
                 
                 # 현재 URL 확인 (디버깅용)
                 current_url = self.web_automation.driver.current_url
-                self.log_info(f"현재 페이지 URL: {current_url}")
+                self.log_info(f"📌 [블로그 탐색] 선택 게시물 URL: {current_url}")
                 
                 # 정답 추출
                 if self.extract_answer():

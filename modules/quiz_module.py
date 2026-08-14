@@ -51,6 +51,8 @@ class QuizModule(BaseModule):
         self.problem_manager = QuizProblemManager()
         self.original_window = None
         self.blog_window = None
+        # 상세 퀴즈 결과 알림의 실제 전송 여부를 작업 관리자에 전달한다.
+        self._result_notification_sent = False
     
     def wait_for_page_load(self, timeout=None):
         """페이지 로딩 완료 대기 (JS readyState 활용으로 최적화)"""
@@ -141,7 +143,8 @@ class QuizModule(BaseModule):
             if missing:
                 self.log_info("블로그 검색을 수행합니다... (1회만 실행)")
                 initial_handles = set(self.web_automation.driver.window_handles)
-                blog_answers_str = self.try_blog_search() or ""
+                product_title = quiz_data.get('product_info', {}).get('title', '')
+                blog_answers_str = self.try_blog_search(product_title) or ""
                 self._close_blog_tab_safely(initial_handles)
                 if blog_answers_str:
                     self.log_info(f"📨 블로그 정답 추출: '{blog_answers_str}' (총 {len(blog_answers_str)}자)")
@@ -290,7 +293,8 @@ class QuizModule(BaseModule):
         # 2. 로컬 DB에 없으면 블로그 검색 (최초 1회만)
         if not ans and not blog_searched:
             blog_searched = True
-            ans, blog_answers_str = self._search_answer_from_blog(index)
+            product_title = quiz_data.get('product_info', {}).get('title', '')
+            ans, blog_answers_str = self._search_answer_from_blog(index, product_title)
         
         # 3. 블로그에도 없거나 이미 검색했었다면 캐시된 블로그 정답 확인
         if not ans and blog_answers_str and index < len(blog_answers_str):
@@ -345,14 +349,14 @@ class QuizModule(BaseModule):
         self.log_info(f"🔍 [DEBUG] get_answer 결과: {ans}")
         return ans
 
-    def _search_answer_from_blog(self, current_index):
+    def _search_answer_from_blog(self, current_index, expected_product_title=None):
         """1회성 블로그 검색 수행 및 탭 정리"""
         self.log_info("로컬 DB에 정답이 없어 블로그 검색을 1회 수행합니다...")
         
         # 블로그 검색 전 현재 열린 탭 상태 저장
         initial_handles = set(self.web_automation.driver.window_handles)
         
-        blog_answers_str = self.try_blog_search()
+        blog_answers_str = self.try_blog_search(expected_product_title)
         
         # 블로그 검색에 따른 탭 정리 (새로 열린 탭만 식별)
         self._close_blog_tab_safely(initial_handles)
@@ -1010,7 +1014,11 @@ class QuizModule(BaseModule):
                     f"   예: 답 123 또는 답 OXO"
                 )
 
-            self.gui_callbacks['notify_slack'](notify_msg)
+            sent = bool(self.gui_callbacks['notify_slack'](notify_msg))
+            self._result_notification_sent = sent
+            if not sent:
+                self.log_warning("퀴즈 상세 슬랙 알림 전송에 실패했습니다.")
+            return sent
         except Exception as e:
             self.log_warning(f"퀴즈 결과 알림 전송 중 오류: {str(e)}")
 
@@ -1182,7 +1190,7 @@ class QuizModule(BaseModule):
 
 
 
-    def try_blog_search(self):
+    def try_blog_search(self, expected_product_title=None):
         """블로그 검색 모듈 안전하게 실행"""
         try:
             # 블로그 검색 모듈 임포트 시도
@@ -1194,7 +1202,11 @@ class QuizModule(BaseModule):
             
             # 블로그 검색 모듈 초기화 시도
             try:
-                blog_search_module = BlogSearchModule(self.web_automation, self.gui_logger)
+                blog_search_module = BlogSearchModule(
+                    self.web_automation,
+                    self.gui_logger,
+                    expected_product_title=expected_product_title,
+                )
             except Exception as init_error:
                 self.log_error(f"블로그 검색 모듈 초기화 실패: {init_error}")
                 return None

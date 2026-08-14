@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 세미나 풀이 모듈
 닥터빌 세미나 세미나 풀이 기능을 담당합니다.
@@ -14,7 +14,10 @@ import json
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import (
+    TimeoutException, NoSuchElementException,
+    ElementClickInterceptedException, ElementNotInteractableException
+)
 from .base_module import BaseModule
 from .survey_problem import SurveyProblemManager
 
@@ -604,6 +607,9 @@ class SurveyModule(BaseModule):
             self.log_info(f"📋 오늘 참여 대상 세미나 {len(targets)}건을 발견했습니다.")
 
             # 2. 수집된 URL 순차 방문 및 처리
+            # Keep the processing order identical across independently refreshed accounts.
+            targets.sort(key=lambda item: ((item.get('title') or '').casefold(), item.get('url') or ''))
+
             success_count = 0
             for i, target in enumerate(targets):
                 try:
@@ -1023,7 +1029,7 @@ class SurveyModule(BaseModule):
                     if "다음" in button_text:
                         # 다음 버튼 클릭
                         self.log_info("다음 버튼 클릭, 다음 페이지로 이동...")
-                        footer_button.click()
+                        self._click_with_modal_recovery(footer_button, "설문 하단 버튼 클릭")
                         
                         # 다음 페이지 로딩 대기
                         time.sleep(2)
@@ -1048,7 +1054,7 @@ class SurveyModule(BaseModule):
                         quiz_result_msg = None
                         if auto_submit:
                             self.log_info("제출하기 버튼 발견, 설문 자동 제출 중...")
-                            footer_button.click()
+                            self._click_with_modal_recovery(footer_button, "설문 하단 버튼 클릭")
                             self.log_success("설문 제출 완료!")
                             break  # 반복문 종료
                         else:
@@ -1163,68 +1169,100 @@ class SurveyModule(BaseModule):
             
             return {"success": False, "reason": "failed", "message": err_msg}
     
-    def handle_survey_popup(self):
-        """설문 시작 시 나타날 수 있는 팝업을 처리합니다."""
+    def _dismiss_blocking_modal(self, timeout=0.0, context="설문 화면"):
+        """화면을 가리는 Headless UI 모달을 닫고 클릭 가능한 상태로 복구합니다."""
+        driver = self.web_automation.driver
+        deadline = time.time() + max(float(timeout), 0.0)
+        modal_seen = False
+        release_deadline = deadline
+
+        modal_script = """
+            const visible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden'
+                    && rect.width > 0 && rect.height > 0;
+            };
+            const portal = document.querySelector('#headlessui-portal-root');
+            if (!portal) return {visible: false, clicked: false, label: ''};
+            const backdrop = portal.querySelector('[id*="headlessui-dialog-backdrop"]');
+            const dialogs = Array.from(portal.querySelectorAll(
+                '[role="dialog"], [aria-modal="true"], [data-headlessui-state="open"]'
+            )).filter(visible);
+            if (!dialogs.length && !(backdrop && visible(backdrop))) {
+                return {visible: false, clicked: false, label: ''};
+            }
+            const controls = Array.from(portal.querySelectorAll(
+                'button, [role="button"], a, input[type="button"], input[type="submit"]'
+            )).filter(visible);
+            const label = (el) => (
+                el.innerText || el.value || el.getAttribute('aria-label') || el.title || ''
+            ).trim();
+            const button = controls.find((el) => {
+                const text = label(el).toLowerCase();
+                return ['닫기', '확인', 'close', 'ok', '×'].some((word) => text.includes(word));
+            });
+            if (button) {
+                const text = label(button);
+                button.click();
+                return {visible: true, clicked: true, label: text};
+            }
+            document.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true
+            }));
+            return {visible: true, clicked: true, label: 'Escape'};
+        """
+
         try:
-            self.log_info("설문 시작 팝업 확인 중...")
-            
-            # 팝업이 나타날 때까지 동적 대기
-            try:
-                popup_container = self.find_element_safe(By.CSS_SELECTOR, "#headlessui-portal-root", timeout=5)
-                
-                self.log_info("팝업 발견, 닫기 버튼 검색 중...")
-                
-                # 팝업 내부에 "닫기" 버튼이 있는지 확인
-                try:
-                    close_button = popup_container.find_element(
-                        By.XPATH, 
-                        './/button[contains(text(), "닫기")]'
-                    )
-                    
-                    if close_button:
-                        self.log_info("설문 시작 팝업 발견, 닫기 버튼 클릭 중...")
-                        
-                        # 닫기 버튼 클릭
-                        close_button.click()
-                        
-                        self.log_success("설문 시작 팝업 닫기 완료")
-                        
-                        # 팝업이 사라질 때까지 짧게 대기
-                        time.sleep(0.5)
-                        
-                except NoSuchElementException:
-                    # "닫기" 텍스트가 없는 경우, btn-primary 클래스를 가진 버튼 찾기
-                    try:
-                        close_button = popup_container.find_element(
-                            By.CSS_SELECTOR, 
-                            'button.btn-primary'
-                        )
-                        
-                        if close_button:
-                            self.log_info("팝업 버튼 발견 (btn-primary), 클릭 중...")
-                            
-                            # 버튼 클릭
-                            close_button.click()
-                            
-                            self.log_success("팝업 버튼 클릭 완료")
-                            
-                            # 팝업이 사라질 때까지 짧게 대기
-                            time.sleep(0.5)
-                            
-                    except NoSuchElementException:
-                        self.log_info("팝업은 있지만 닫기 버튼을 찾을 수 없습니다")
-                        
-                except Exception as e:
-                    self.log_warning(f"닫기 버튼 처리 중 오류: {str(e)}")
-                        
-            except TimeoutException:
-                self.log_info("설문 시작 팝업이 없습니다. 바로 진행합니다.")
-            except Exception as e:
-                self.log_warning(f"팝업 처리 중 오류: {str(e)}")
-                    
-        except Exception as e:
-            self.log_warning(f"팝업 확인 중 오류: {str(e)}")
-    
+            while True:
+                result = driver.execute_script(modal_script) or {}
+                if result.get("visible"):
+                    modal_seen = True
+                    if result.get("clicked"):
+                        label = result.get("label") or "닫기 제어"
+                        self.log_info(f"{context}: 차단 모달을 자동으로 닫았습니다. ({label})")
+                        release_deadline = max(release_deadline, time.time() + 0.8)
+                    if time.time() < release_deadline:
+                        time.sleep(0.15)
+                        continue
+                    return True
+
+                if modal_seen:
+                    self.log_success(f"{context}: 차단 모달이 해제되어 계속 진행합니다.")
+                    return True
+                if time.time() >= deadline:
+                    return False
+                time.sleep(0.15)
+        except Exception as exc:
+            self.log_warning(f"{context}: 차단 모달 확인 중 오류: {str(exc)}")
+            return modal_seen
+
+    def _click_with_modal_recovery(self, element, action_name):
+        """모달에 가로막힌 클릭을 모달 해제 후 한 번 재시도합니다."""
+        driver = self.web_automation.driver
+        self._dismiss_blocking_modal(timeout=0.0, context=action_name)
+        try:
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
+                element
+            )
+            element.click()
+            return True
+        except (ElementClickInterceptedException, ElementNotInteractableException) as exc:
+            self.log_warning(f"{action_name}: 클릭이 가로막혀 모달 해제 후 재시도합니다. ({str(exc).splitlines()[0]})")
+            self._dismiss_blocking_modal(timeout=2.0, context=action_name)
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
+                element
+            )
+            element.click()
+            return True
+
+    def handle_survey_popup(self, timeout=3.0, context="설문 시작"):
+        """설문 시작 또는 진행 중 나타나는 차단 모달을 닫습니다."""
+        return self._dismiss_blocking_modal(timeout=timeout, context=context)
+
     def _handle_submit_confirmation_popup(self):
         """제출 확인 팝업에서 확인 버튼을 자동으로 클릭합니다."""
         try:
@@ -1593,6 +1631,7 @@ class SurveyModule(BaseModule):
             processed_count = 0
             
             for question in questions:
+                self._dismiss_blocking_modal(timeout=0.0, context='문항 처리')
                 # 세션 유효성 확인
                 try:
                     _ = self.web_automation.driver.title
@@ -1778,7 +1817,7 @@ class SurveyModule(BaseModule):
                                                 option_text = self._get_radio_label_text(radio)
                                                 if option_text and (answer_value.upper() in option_text.upper() or option_text.upper() in answer_value.upper()):
                                                      if not radio.is_selected():
-                                                         radio.click()
+                                                         self._click_with_modal_recovery(radio, f"문제 {question_number} 보기 선택")
                                                          circled_num = self._get_circled_number(idx + 1)
                                                          self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{circled_num}\" 텍스트 '{answer_value}' 선택 완료")
                                                          if hasattr(self, "_current_survey_answers"): self._current_survey_answers.append(f"✅ 문제 {question_number}번: 퀴즈 정답 \"{circled_num}\"")
@@ -1816,7 +1855,7 @@ class SurveyModule(BaseModule):
                                                     
                                                 circled_num = self._get_circled_number(target_num)
                                                 if not target_radio.is_selected():
-                                                    target_radio.click()
+                                                    self._click_with_modal_recovery(target_radio, f"문제 {question_number} 정답 선택")
                                                     opt_msg = f" 텍스트 '{option_text}'" if option_text else ""
                                                     self.log_success(f"문제 {question_number}번: 퀴즈 정답 \"{circled_num}\"{opt_msg} 선택 완료")
                                                 else:
@@ -1891,7 +1930,7 @@ class SurveyModule(BaseModule):
                                                             try:
                                                                 opt_txt = self._get_radio_label_text(radio)
                                                                 if opt_txt and (str(new_ans).upper() in opt_txt.upper() or opt_txt.upper() in str(new_ans).upper()):
-                                                                    if not radio.is_selected(): radio.click()
+                                                                    if not radio.is_selected(): self._click_with_modal_recovery(radio, f"문제 {question_number} 보기 선택")
                                                                     radio_selected = True
                                                                     question_processed = True
                                                                     break
@@ -1899,7 +1938,7 @@ class SurveyModule(BaseModule):
                                                         if not radio_selected and str(new_ans).isdigit():
                                                             n = int(new_ans)
                                                             if 1 <= n <= len(radios):
-                                                                if not radios[n-1].is_selected(): radios[n-1].click()
+                                                                if not radios[n-1].is_selected(): self._click_with_modal_recovery(radios[n-1], f"문제 {question_number} 정답 선택")
                                                                 radio_selected = True
                                                                 question_processed = True
                                                         if radio_selected:
@@ -1915,7 +1954,7 @@ class SurveyModule(BaseModule):
                             else:
                                 # 일반 문제: 첫 번째 옵션 선택
                                 if not first_input.is_selected():
-                                    first_input.click()
+                                    self._click_with_modal_recovery(first_input, f"문제 {question_number} 입력칸 선택")
                                     self.log_info(f"문제 {question_number}번: 라디오 버튼 첫 번째 옵션 선택")
                                     question_processed = True
                                 
@@ -1925,7 +1964,7 @@ class SurveyModule(BaseModule):
                             if len(checkbox_inputs) >= 2:
                                 clickable_checkbox = checkbox_inputs[1]
                                 if not clickable_checkbox.is_selected():
-                                    clickable_checkbox.click()
+                                    self._click_with_modal_recovery(clickable_checkbox, f"문제 {question_number} 체크박스 선택")
                                     self.log_info(f"문제 {question_number}번: 체크박스 첫 번째 옵션 선택")
                                     question_processed = True
                                 
@@ -2181,3 +2220,7 @@ class SurveyModule(BaseModule):
         except Exception as e:
             self.log_error(f"자동 답변 실패: {str(e)}")
             return False
+
+
+
+

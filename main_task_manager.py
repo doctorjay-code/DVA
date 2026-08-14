@@ -356,6 +356,8 @@ class TaskManager:
                 # 모듈에서 직접 개별 결과를 알림으로 보낼 수 있도록 콜백 추가
                 mod_callbacks = gui_callbacks.copy()
                 mod_callbacks['notify_kakao'] = lambda msg, cat="notify_survey": self.notifier.send_notification(msg, category=cat)
+                # QuizModule의 제품명·찍은 답 상세 결과를 Slack에도 전송한다.
+                mod_callbacks['notify_slack'] = lambda msg: self.notifier.send_notification(msg, category="notify_quiz")
                 mod_callbacks['notify_success'] = lambda msg: self.notifier.send_notification(msg, category="notify_survey")
                 
                 # 현재 모듈 상태 업데이트 (시스템 로그에만 기록)
@@ -400,6 +402,9 @@ class TaskManager:
                 if is_success:
                     # '세미나 풀이', '포인트'는 내부에서 이미 로그를 보냈으므로 중복 출력 방지
                     skip = (module_name in ["세미나 풀이", "포인트"])
+                    # 퀴즈 상세 알림이 성공적으로 전송된 경우 일반 성공 알림은 중복하지 않는다.
+                    if module_name == "퀴즈 풀이" and getattr(module, '_result_notification_sent', False):
+                        skip = True
                     self.log_success(module_name, gui_callbacks, message, skip_notify=skip)
                     self.handle_special_actions(module_name, 'success')
                 else:
