@@ -8,6 +8,7 @@ import threading
 import logging
 import time
 import os
+import json
 from datetime import datetime
 from web_automation import WebAutomation
 from modules.base_module import (
@@ -222,7 +223,107 @@ class TaskManager:
         self._module_cache = {}  # 모듈 클래스 캐시
         self.browser_lock = threading.RLock()  # 브라우저 전역 잠금 (재진입 가능)
         self.notifier = NotificationManager() # 카카오 알림 매니저 초기화
+        self._startup_status_summary_complete = False
+        self._slack_quick_action_panel_poster = None
     
+    def _startup_status_sync_path(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_dir, "data", "slack_startup_status.json")
+
+    def _startup_account_names(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(base_dir, "data")
+        try:
+            names = [
+                filename[len("settings_"):-len(".json")]
+                for filename in os.listdir(data_dir)
+                if filename.startswith("settings_") and filename.endswith(".json")
+            ]
+            return set(name for name in names if name)
+        except Exception as exc:
+            self.logger.warning(f"Slack 상태 요약 계정 목록 확인 오류: {exc}")
+            return set()
+
+    def _all_startup_status_summaries_ready(self):
+        expected_accounts = self._startup_account_names()
+        current_account = os.environ.get("ACCOUNT_NAME", "").strip()
+        if not expected_accounts or not current_account:
+            return bool(self._startup_status_summary_complete)
+
+        state_path = self._startup_status_sync_path()
+        try:
+            with open(state_path, "r", encoding="utf-8") as state_file:
+                state = json.load(state_file)
+            completed = set(state.get("completed_accounts", []))
+            return expected_accounts.issubset(completed)
+        except Exception:
+            return False
+
+    def _mark_startup_status_summary_complete(self):
+        """계정별 초기 상태 요약 완료를 기록하고, 모든 계정 완료 여부를 반환합니다."""
+        current_account = os.environ.get("ACCOUNT_NAME", "").strip()
+        expected_accounts = self._startup_account_names()
+        if not current_account or not expected_accounts:
+            return True
+
+        state_path = self._startup_status_sync_path()
+        lock_path = state_path + ".lock"
+        lock_fd = None
+        for _ in range(100):
+            try:
+                lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                break
+            except FileExistsError:
+                time.sleep(0.05)
+            except Exception as exc:
+                self.logger.warning(f"Slack 상태 요약 잠금 오류: {exc}")
+                return False
+
+        if lock_fd is None:
+            self.logger.warning("Slack 상태 요약 기록 잠금을 얻지 못했습니다.")
+            return False
+
+        try:
+            os.close(lock_fd)
+            state = {}
+            try:
+                with open(state_path, "r", encoding="utf-8") as state_file:
+                    state = json.load(state_file)
+            except Exception:
+                state = {}
+
+            completed = set(state.get("completed_accounts", []))
+            # 같은 계정이 다시 초기 상태 요약을 완료하면 새로운 두 계정 실행 묶음으로 봅니다.
+            if current_account in completed:
+                completed = set()
+
+            completed.add(current_account)
+            with open(state_path, "w", encoding="utf-8") as state_file:
+                json.dump(
+                    {
+                        "expected_accounts": sorted(expected_accounts),
+                        "completed_accounts": sorted(completed),
+                        "updated_at": time.time(),
+                    },
+                    state_file,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            all_ready = expected_accounts.issubset(completed)
+            self.logger.info(
+                f"초기 상태 요약 완료 계정: {len(completed)}/{len(expected_accounts)}"
+            )
+            return all_ready
+        except Exception as exc:
+            self.logger.warning(f"Slack 상태 요약 완료 기록 오류: {exc}")
+            return False
+        finally:
+            try:
+                if os.path.exists(lock_path):
+                    os.remove(lock_path)
+            except Exception:
+                pass
+
     def initialize_web_automation(self, gui_callbacks=None):
         """웹드라이버가 없으면 초기화"""
         if not self.state.web_automation:
@@ -494,6 +595,15 @@ class TaskManager:
                         points_mod.execute()
                     except Exception as pe:
                         self.logger.error(f"후속 포인트 체크 중 오류: {str(pe)}")
+
+                # 자동 로그인 후 포인트 상태 요약까지 끝난 다음 Slack 버튼을 올립니다.
+                if module_name == "로그인":
+                    self._startup_status_summary_complete = True
+                    all_accounts_ready = self._mark_startup_status_summary_complete()
+                    panel_poster = self._slack_quick_action_panel_poster
+                    if all_accounts_ready and callable(panel_poster):
+                        panel_poster()
+
                         
                 # [추가] '세미나 풀이' 모듈이 최종 완료된 후에는 UI 세미나 목록과 상태 동기화를 위해 즉시 세미나 목록 새로고침 수행
                 if module_name == "세미나 풀이":
@@ -1745,9 +1855,123 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                 web_client = WebClient(token=slack_bot_token)
                 socket_client = SocketModeClient(app_token=slack_app_token, web_client=web_client)
 
+                def _write_slack_button_dispatch(task_name, raw_text, **extra):
+                    """Slack 버튼 요청을 기존 IPC 처리 흐름으로 전달합니다."""
+                    base_dir = os.path.dirname(os.path.abspath(__file__))
+                    dispatch_file = os.path.join(base_dir, "data", "slack_cmd_dispatch.json")
+                    os.makedirs(os.path.dirname(dispatch_file), exist_ok=True)
+                    payload = {
+                        "cmd_id": f"slack_button_{task_name}_{int(time.time() * 1000)}",
+                        "task_name": task_name,
+                        "raw_text": raw_text,
+                        "timestamp": time.time(),
+                    }
+                    payload.update(extra)
+                    with open(dispatch_file, "w", encoding="utf-8") as f:
+                        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+                def _post_quick_action_panel():
+                    """DVA Slack 연결 직후 Webhook 채널에 빠른 실행 버튼을 게시합니다."""
+                    webhook_url = (settings.get('slack_webhook_url') or '').strip()
+                    if not webhook_url:
+                        self.logger.warning("Slack 빠른 실행 패널을 생략합니다: Webhook URL이 설정되지 않았습니다.")
+                        return
+                    # 두 계정이 같은 시점에 시작해도 Slack 패널은 한 번만 올립니다.
+                    panel_lock_path = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "data",
+                        "slack_quick_panel.lock",
+                    )
+                    panel_window_seconds = 120
+                    now = time.time()
+                    try:
+                        if os.path.exists(panel_lock_path):
+                            lock_age = now - os.path.getmtime(panel_lock_path)
+                            if lock_age < panel_window_seconds:
+                                self.logger.info("다른 DVA 계정이 통합 Slack 버튼 패널을 이미 게시했습니다.")
+                                return
+                            os.remove(panel_lock_path)
+
+                        lock_fd = os.open(panel_lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                        with os.fdopen(lock_fd, "w", encoding="utf-8") as lock_file:
+                            json.dump({"created_at": now}, lock_file)
+                    except FileExistsError:
+                        self.logger.info("다른 DVA 계정이 통합 Slack 버튼 패널을 게시하는 중입니다.")
+                        return
+                    except Exception as lock_err:
+                        self.logger.warning(f"Slack 통합 버튼 패널 잠금 확인 오류: {lock_err}")
+                        return
+
+                    panel_header = "🔔 *[DVA | 통합]* 알림"
+                    panel_body = "📋 원하는 작업을 선택하세요."
+                    payload = {
+                        "text": f"{panel_header}\n{panel_body}",
+                        "blocks": [
+                            {"type": "section", "text": {"type": "mrkdwn", "text": f"{panel_header}\n{panel_body}"}},
+                            {"type": "actions", "block_id": "dva_quick_actions", "elements": [
+                                {"type": "button", "text": {"type": "plain_text", "text": "루틴"}, "action_id": "dva_btn_routine", "value": "routine"},
+                                {"type": "button", "text": {"type": "plain_text", "text": "오늘의 세미나"}, "action_id": "dva_btn_today_seminar", "value": "today_seminar"},
+                                {"type": "button", "text": {"type": "plain_text", "text": "배민 만원 한개"}, "action_id": "dva_btn_baemin", "value": "baemin"},
+                            ]},
+                        ],
+                    }
+                    try:
+                        import requests
+                        response = requests.post(webhook_url, json=payload, timeout=10)
+                        if response.status_code == 200 and response.text == "ok":
+                            self.logger.info("DVA Slack 빠른 실행 버튼 패널 게시 완료")
+                        else:
+                            self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패 ({response.status_code}): {response.text}")
+                    except Exception as panel_err:
+                        self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 오류: {panel_err}")
+                def _ack_quick_action(channel_id, task_desc):
+                    """빠른 실행 버튼도 일반 Slack 명령과 같은 수신 확인을 보냅니다."""
+                    try:
+                        web_client.chat_postMessage(
+                            channel=channel_id,
+                            text=f"🚀 *[DVA | 통합]* 원격 요청 수신 완료\n*{task_desc}* 작업을 시작합니다!",
+                        )
+                    except Exception as ack_err:
+                        self.logger.warning(f"Slack 빠른 실행 수신 확인 전송 오류: {ack_err}")
+
                 def handle_request(client, req):
                     response = SocketModeResponse(envelope_id=req.envelope_id)
                     client.send_socket_mode_response(response)
+                    if req.type == "interactive":
+                        try:
+                            payload = req.payload or {}
+                            if not isinstance(payload, dict) or payload.get("type") != "block_actions":
+                                return
+
+                            actions = payload.get("actions") or []
+                            if not actions:
+                                return
+
+                            action_id = actions[0].get("action_id")
+                            channel_id = (payload.get("channel") or {}).get("id")
+                            if not channel_id:
+                                self.logger.warning("Slack 빠른 실행 버튼 요청에 채널 ID가 없습니다.")
+                                return
+
+                            if action_id == "dva_btn_routine":
+                                _ack_quick_action(channel_id, "📋 루틴(출석 체크 + 퀴즈 풀이)")
+                                _write_slack_button_dispatch("routine", "루틴")
+                            elif action_id == "dva_btn_today_seminar":
+                                _ack_quick_action(channel_id, "📢 세미나 목록")
+                                _write_slack_button_dispatch("seminar", "오늘 세미나")
+                            elif action_id == "dva_btn_baemin":
+                                _ack_quick_action(channel_id, "🛵 배달의민족 1개 결제")
+                                _write_slack_button_dispatch(
+                                    "baemin",
+                                    "배민 만원 한개",
+                                    product_keyword="배달의민족",
+                                    quantity=1,
+                                )
+                            else:
+                                return
+                        except Exception as action_err:
+                            self.logger.warning(f"Slack 버튼 요청 처리 오류: {action_err}")
+                        return
 
                     if req.type == "events_api":
                         event = req.payload.get("event", {})
@@ -1789,6 +2013,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             product_keyword = "배달의민족"
                             quantity = 1
                             remaining_ans = []
+                            answer_batch = []
 
                             if any(k in text for k in ["출석", "출석체크", "출체"]):
                                 task_name = "attendance"
@@ -1873,11 +2098,29 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                     if not parsed_answers:
                                         parsed_answers = [raw_ans_str]
                                         
-                                    task_name = "answer_registration"
-                                    first_ans = parsed_answers[0]
-                                    remaining_ans = parsed_answers[1:]
-                                    product_keyword = first_ans
-                                    task_desc = f"📝 퀴즈 정답 등록 ('{first_ans}')"
+                                    if len(parsed_answers) == 3:
+                                        # 세미나 객관식 3문항 답안은 문항 순번(1·2·3)에 고정 매핑한다.
+                                        # 현재 어느 문항에서 대기 중인지와 무관하게 1번=첫째, 2번=둘째, 3번=셋째다.
+                                        task_name = "answer_batch_registration"
+                                        answer_batch = parsed_answers[:]
+                                        first_ans = answer_batch[0]
+                                        remaining_ans = []
+                                        product_keyword = first_ans
+                                        task_desc = f"📝 세미나 3문항 정답 일괄 등록 ({', '.join(answer_batch)})"
+                                    elif len(parsed_answers) == 1:
+                                        # 기존의 단일 답안 입력은 하위 호환성을 위해 유지한다.
+                                        task_name = "answer_registration"
+                                        first_ans = parsed_answers[0]
+                                        remaining_ans = []
+                                        product_keyword = first_ans
+                                        task_desc = f"📝 퀴즈 정답 등록 ('{first_ans}')"
+                                    else:
+                                        # 두 개 또는 네 개 이상의 답은 순번이 모호하므로 대기열에 넣지 않는다.
+                                        task_name = "answer_batch_invalid"
+                                        first_ans = ""
+                                        remaining_ans = []
+                                        product_keyword = ""
+                                        task_desc = "⚠️ 세미나 답안은 정확히 3개를 입력해 주세요"
 
                             if not task_name:
                                 # Gemini AI Agent 자연어 의도 파싱 시도
@@ -1888,14 +2131,23 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             if not task_name:
                                 is_dm = event.get("channel_type") == "im"
                                 if event_type == "app_mention" or is_dm:
-                                    help_msg = "🤖 *[DVA 원격 제어]* `출석체크`, `퀴즈`, `포인트`, `세미나`, `배민/쿠폰`, `답 2` 명령어를 입력해 주세요!"
+                                    help_msg = "🤖 *[DVA 원격 제어]* `출석체크`, `퀴즈`, `포인트`, `세미나`, `배민/쿠폰`, `답 2 3 4` 명령어를 입력해 주세요!"
                                     web_client.chat_postMessage(channel=channel_id, text=help_msg, thread_ts=thread_ts)
                                 return
 
                             # 즉시 슬랙 채널로 수신 확인 피드백 메시지 발송
                             try:
                                 should_send_ack = True
-                                if task_name == "answer_registration":
+                                if task_name == "answer_batch_registration":
+                                    ack_text = (
+                                        f"📝 *[세미나 3문항 답안 수신]* 1번 `{answer_batch[0]}`, "
+                                        f"2번 `{answer_batch[1]}`, 3번 `{answer_batch[2]}`\n"
+                                        "현재 세미나의 문항 번호에 맞춰 적용합니다. 이미 저장된 일부 답안은 순서를 밀지 않습니다."
+                                    )
+                                elif task_name == "answer_batch_invalid":
+                                    ack_text = "⚠️ 세미나 객관식 답안은 `답 2 3 4`처럼 정확히 3개를 한 번에 입력해 주세요."
+                                elif task_name == "answer_registration":
+
                                     from modules.survey_module import SurveyModule
                                     
                                     # ✅ 실제 정답 등록/대기열 반영은 main.py의 IPC 폴러에서 단일 수행 (이중 등록 방지)
@@ -1931,7 +2183,9 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                     "quantity": quantity,
                                     "answer_val": product_keyword,
                                     "answer_queue": remaining_ans,
+                                    "answer_batch": answer_batch,
                                     "raw_text": text,
+
                                     "timestamp": time.time()
                                 }
                                 with open(dispatch_file, "w", encoding="utf-8") as f:
@@ -1939,8 +2193,11 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             except Exception as ie:
                                 self.logger.error(f"Slack IPC 디스패치 파일 작성 오류: {ie}")
 
+                self._slack_quick_action_panel_poster = _post_quick_action_panel
                 socket_client.socket_mode_request_listeners.append(handle_request)
                 socket_client.connect()
+                if self._startup_status_summary_complete and self._all_startup_status_summaries_ready():
+                    _post_quick_action_panel()
                 self.logger.info("DVA 메인 프로그램 내장 Slack 리스너 가동 완료!")
             except Exception as e:
                 self.logger.error(f"DVA 내장 Slack 리스너 시작 예외: {str(e)}")

@@ -24,7 +24,7 @@ MSG_ATTENDANCE_ALREADY = "✅ 이미 출석 체크가 완료되었습니다."
 
 # --- 📝 퀴즈 (Quiz) ---
 MSG_QUIZ_START = "📝 일일 퀴즈 풀기를 시작합니다..."
-MSG_QUIZ_SUCCESS = "✅ 일일 퀴즈 풀기 성공 및 데이터 학습 완료"
+MSG_QUIZ_SUCCESS = "✅ 일일 퀴즈 풀기 성공"
 MSG_QUIZ_ALREADY = "✅ 이미 오늘의 퀴즈를 완료했습니다."
 MSG_QUIZ_SEARCH_BLOG = "🔍 정답을 찾기 위해 블로그를 검색합니다..."
 MSG_QUIZ_FOUND_ANSWER = "💡 정답 후보를 찾았습니다: {answer}"

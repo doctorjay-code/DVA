@@ -21,7 +21,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.15"
+VERSION = "v3.9.16"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -193,6 +193,7 @@ class DoctorBillApp:
             'show_seminar_dialog': self.show_seminar_dialog,
             'update_seminar_dialog': self.update_seminar_dialog,
             'notify_kakao': lambda msg, cat="notify_startup_summary": self.task_manager.notifier.send_notification(msg, category=cat),
+            'notify_slack': lambda msg: self.task_manager.notifier.slack_notifier.send_slack_message(msg, category="notify_quiz"),
             'gui_instance': self
         }
 
@@ -1046,6 +1047,7 @@ class DoctorBillApp:
                         task_name = data.get("task_name")
                         task_desc_map = {
                             'attendance': '📅 출석 체크',
+                            'routine': '📋 루틴(출석 체크 + 퀴즈 풀이)',
                             'quiz': '🧠 일일 퀴즈 풀이',
                             'points': '💰 포인트/상태 갱신',
                             'seminar': '📢 세미나 목록',
@@ -1058,6 +1060,8 @@ class DoctorBillApp:
                         gui_callbacks = self.get_callbacks()
                         if task_name == 'attendance':
                             self.on_attendance()
+                        elif task_name == 'routine':
+                            self.task_manager.execute_attendance_then_quiz(gui_callbacks)
                         elif task_name == 'quiz':
                             self.on_quiz()
                         elif task_name == 'seminar':
@@ -1070,8 +1074,31 @@ class DoctorBillApp:
                             p_kw = data.get('product_keyword', '배달의민족')
                             qty = data.get('quantity', 1)
                             self.on_baemin_remote_purchase(product_keyword=p_kw, quantity=qty)
+                        elif task_name == 'answer_batch_registration':
+                            raw_batch = data.get('answer_batch') or []
+                            answer_batch = [str(answer).strip() for answer in raw_batch if str(answer).strip()]
+                            from modules.survey_module import SurveyModule
+
+                            if len(answer_batch) == 3:
+                                # 답안 묶음은 현재 대기 중인 문항이 아니라 문항 번호 1·2·3에 고정한다.
+                                # 새 묶음이 도착하면 이전 단일 답안 대기열은 폐기하여 잔여 답안 오염을 막는다.
+                                SurveyModule.pending_answer_batch = {
+                                    1: answer_batch[0],
+                                    2: answer_batch[1],
+                                    3: answer_batch[2],
+                                }
+                                SurveyModule.pending_answer_queue = []
+                                self.log_message(
+                                    f"✅ [Slack 세미나 답안 묶음 등록] 1번='{answer_batch[0]}', "
+                                    f"2번='{answer_batch[1]}', 3번='{answer_batch[2]}'"
+                                )
+                            else:
+                                self.log_message("⚠ [Slack 세미나 답안 묶음 무시] 답안은 정확히 3개여야 합니다.")
+                        elif task_name == 'answer_batch_invalid':
+                            self.log_message("⚠ [Slack 세미나 답안 거부] `답 2 3 4`처럼 정확히 3개를 입력해 주세요.")
                         elif task_name == 'answer_registration':
                             answer_val = data.get('answer_val') or data.get('product_keyword') or ''
+
                             answer_queue = data.get('answer_queue') or []
                             from modules.survey_module import SurveyModule
                             from modules.survey_problem import SurveyProblemManager

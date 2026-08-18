@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 새로운 퀴즈 풀이 모듈
 닥터빌 퀴즈 풀이 기능을 담당합니다.
@@ -118,6 +118,7 @@ class QuizModule(BaseModule):
 
             # 2. 🔥 이미 풀었는지 즉시 확인
             if self._is_popup_quiz_solved():
+                self._quiz_already_completed = True
                 self.log_info(MSG_QUIZ_ALREADY)
                 return True
 
@@ -181,19 +182,22 @@ class QuizModule(BaseModule):
                                 final_answers[i] = raw_clean
 
             # 8. 정답 선택
+            selected_answer_values = {}
             for i, q_info in enumerate(questions):
                 ans = final_answers.get(i)
                 if not ans:
                     self.log_error(f"❌ 문제 {i+1}의 정답을 끝내 확보하지 못했습니다.")
                     return False
-                if self.select_single_answer(q_info, ans):
+                selected_value = self.select_single_answer(q_info, ans)
+                if selected_value:
+                    selected_answer_values[i] = str(selected_value)
                     self.log_success(f"✅ 문제 {i+1} 답변 선택 완료: {ans}")
                 else:
                     self.log_error(f"❌ 문제 {i+1} 답변 선택 실패")
                     return False
 
             # 9. 제출
-            quiz_data['submitted_answers'] = final_answers  # 찍은 답 저장 (슬랙 알림용)
+            quiz_data['submitted_answers'] = selected_answer_values  # actual selected numbers for Slack
             submit_result = self.click_submit_button(quiz_data)
             if not submit_result:
                 return False
@@ -244,6 +248,8 @@ class QuizModule(BaseModule):
         """일일 퀴즈 풀기 작업 실행 (외부 호출 엔트리 포인트)"""
         is_success = False
         result_msg = ""
+        # 실제 풀이 성공과 이미 완료된 상태를 분리해 결과 알림에 전달합니다.
+        self._quiz_already_completed = False
 
         try:
             if hasattr(self.web_automation.driver, 'current_window_handle'):
@@ -258,7 +264,7 @@ class QuizModule(BaseModule):
             # 2. 퀴즈 풀기 시도 (이미 푼 경우 내부적으로 True 반환)
             if self._attempt_quiz():
                 is_success = True
-                result_msg = MSG_QUIZ_SUCCESS
+                result_msg = MSG_QUIZ_ALREADY if self._quiz_already_completed else MSG_QUIZ_SUCCESS
             else:
                 is_success = False
                 result_msg = "일일 퀴즈 풀기 실패 (오답 또는 정답 미확보)"
@@ -769,7 +775,7 @@ class QuizModule(BaseModule):
                 self.log_info(f"🔍 클릭 결과: {click_result}")
                 
                 if click_result and 'FAILED' not in click_result and 'NOT_FOUND' not in click_result:
-                    return True
+                    return str(correct_val)
                 else:
                     self.log_error(f"라디오 버튼 선택 실패: {click_result}")
                     return False

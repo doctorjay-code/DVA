@@ -746,9 +746,12 @@ class SurveyModule(BaseModule):
                 except Exception as e:
                     self.log_warning(f"창 정리 중 오류: {str(e)}")
                 finally:
+                    # 실행 종료 시 답안 묶음을 비워 다음 세미나로 넘어가지 않게 한다.
+                    SurveyModule.pending_answer_batch = {}
                     # 실행 종료 표시
                     SurveyModule._is_running = False
             else:
+                SurveyModule.pending_answer_batch = {}
                 SurveyModule._is_running = False
 
     
@@ -1548,6 +1551,24 @@ class SurveyModule(BaseModule):
         waiting_count = 0
         try:
             while waiting_count <= 300:
+                # 답 3개 묶음이 대기 중인 문항에서도 즉시 문항 번호에 맞게 반영되도록 한다.
+                batch_answers = getattr(SurveyModule, 'pending_answer_batch', None)
+                batch_answer = ''
+                if isinstance(batch_answers, dict):
+                    batch_answer = str(batch_answers.get(question_number, '')).strip()
+                if batch_answer:
+                    pending = getattr(SurveyModule, 'current_pending_quiz', None) or {}
+                    self.problem_manager.add_quiz(
+                        question_text,
+                        batch_answer,
+                        category=pending.get('category', ''),
+                    )
+                    self.log_success(
+                        f"문제 {question_number}번: 슬랙 3문항 답안 묶음의 '{batch_answer}'를 문항 번호 기준으로 등록 완료!"
+                    )
+                    if str(question_number) == '3':
+                        SurveyModule.pending_answer_batch = {}
+
                 self.problem_manager.load_quizzes()
                 answer = self.problem_manager.get_answer(question_text)
                 if answer:
@@ -1680,9 +1701,35 @@ class SurveyModule(BaseModule):
                         quiz_answer = None
                         
                         if is_quiz:
-                            # 퀴즈 정답 조회 (원본 문제 텍스트로 - get_answer에서 정규화함)
-                            quiz_answer = self.problem_manager.get_answer(question_text)
-                            
+                            # Slack에서 답 3개를 한 번에 받은 경우 문항 순번(1·2·3)에 고정 매핑한다.
+                            # 기존 DB에 일부 답이 있어도 대기열 순서가 밀리지 않도록 배치 답안을 우선 적용한다.
+                            batch_answers = getattr(SurveyModule, 'pending_answer_batch', None)
+                            batch_answer = ''
+                            if isinstance(batch_answers, dict):
+                                batch_answer = str(batch_answers.get(question_number, '')).strip()
+
+                            if batch_answer:
+                                category_str = ""
+                                try:
+                                    title_text = self.web_automation.driver.title
+                                    matches = re.findall(r'\(([^)]+)\)', title_text)
+                                    if matches:
+                                        category_str = matches[-1].split('_')[0].strip()
+                                except Exception:
+                                    pass
+                                self.problem_manager.add_quiz(question_text, batch_answer, category=category_str)
+                                quiz_answer = self.problem_manager.get_answer(question_text)
+                                if quiz_answer:
+                                    self.log_success(
+                                        f"문제 {question_number}번: 슬랙 3문항 답안 묶음의 '{batch_answer}'를 문항 번호 기준으로 등록 완료!"
+                                    )
+                                # 세 번째 객관식 문항까지 처리한 뒤에는 다음 세미나로 배치가 넘어가지 않게 비운다.
+                                if str(question_number) == '3':
+                                    SurveyModule.pending_answer_batch = {}
+                            else:
+                                # 퀴즈 정답 조회 (원본 문제 텍스트로 - get_answer에서 정규화함)
+                                quiz_answer = self.problem_manager.get_answer(question_text)
+
                             # 🌟 슬랙 원격 대기열(pending_answer_queue)에 미리 입력받은 정답이 있는지 확인!
                             queue = getattr(SurveyModule, 'pending_answer_queue', None)
                             if not quiz_answer and queue:

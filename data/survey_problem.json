@@ -644,12 +644,12 @@
     "answer_num": "4"
   },
   "엔블로 0.3mg의 Metformin 병용요법(ENHANCE-M) 24주 결과로 옳은 설명은 무엇입니까": {
-    "answer": "HbA1c 약 -0.8% 감소 및 60% 이상 목표혈당(<7%) 달성",
+    "answer": "HbA1c 약 –0.8% 감소 및 60% 이상 목표혈당(<7%) 달성",
     "category": "엔블로",
     "answer_num": "1"
   },
   "엔블로의 요중 포도당 배설(UGCR)에 대한 설명 중 맞는 것은": {
-    "answer": "Dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가)을 보였다.",
+    "answer": "dapagliflozin 대비 현저히 높은 요중 포도당 배설(UGCR 증가) 을 보였다",
     "category": "엔블로",
     "answer_num": "1"
   },
@@ -687,5 +687,20 @@
     "answer": "넓은 손가락 받침으로 주사 시 투여 편의성을 개선하였다.",
     "category": "스토보클로",
     "answer_num": "3"
+  },
+  "WAYMED ENDO는 식품의약품안전처로부터 어떤 자격으로 지정된 국내 최초의 AI 기반 위·대장 내시경 실시간 영상분석 소프트웨어입니까": {
+    "answer": "혁신의료기기 (제37호)",
+    "category": "WAYMED ENDO",
+    "answer_num": "2"
+  },
+  "IDEN 2025에서 발표된 임상연구 결과, WAYMED ENDO 사용군의 선종 발견율(ADR)은 비사용군 대비 몇 배 향상되었습니까": {
+    "answer": "3",
+    "category": "WAYMED ENDO",
+    "answer_num": "3"
+  },
+  "WAYMED ENDO를 도입할 때, 기존에 사용 중인 내시경 장비와 관련하여 옳은 설명은 무엇입니까": {
+    "answer": "4",
+    "category": "WAYMED ENDO",
+    "answer_num": "4"
   }
 }

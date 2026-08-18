@@ -253,3 +253,9 @@ docs/
 
 # Git backup folder
 .git_old/
+
+*.backup_*
+
+*.bak_*
+
+*_backup.md
