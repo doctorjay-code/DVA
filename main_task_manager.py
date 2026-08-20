@@ -2035,6 +2035,22 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 q_match = re.search(r'(\d+)\s*(개|장)', text)
                                 if q_match:
                                     quantity = int(q_match.group(1))
+                                else:
+                                    # '두개', '세 장'처럼 한글 수량으로 요청한 경우도 처리합니다.
+                                    korean_quantity_map = {
+                                        '하나': 1, '한': 1,
+                                        '둘': 2, '두': 2,
+                                        '셋': 3, '세': 3,
+                                        '넷': 4, '네': 4,
+                                        '다섯': 5, '여섯': 6, '일곱': 7,
+                                        '여덟': 8, '아홉': 9, '열': 10,
+                                    }
+                                    korean_q_match = re.search(
+                                        r'(하나|한|둘|두|셋|세|넷|네|다섯|여섯|일곱|여덟|아홉|열)\s*(개|장)',
+                                        text
+                                    )
+                                    if korean_q_match:
+                                        quantity = korean_quantity_map[korean_q_match.group(1)]
                                 
                                 if any(k in text for k in ["카카오", "카카오페이"]):
                                     product_keyword = "카카오"
