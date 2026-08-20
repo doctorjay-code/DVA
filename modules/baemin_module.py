@@ -239,12 +239,12 @@ class BaeminModule(BaseModule):
             purchase_type = coupon_item.get('purchase_type', 'bulk')
             product_name = coupon_item.get('name', '')
 
-            # 배민 전용 일괄 발송은 여러 번호를 한 주문에서 처리할 때 일부 발송이 누락되어도
-            # 주문 전체가 완료로 처리될 수 있습니다. 다중 요청은 1장씩 별도 주문·완료 확인합니다.
-            if purchase_type == 'bulk' and quantity > 1:
-                self.log_info(f"🛡️ 배민 안전 순차 구매: 총 {quantity}개를 1장씩 결제·확인합니다.")
+            # 모든 쿠폰은 다중 요청 시 1장씩 별도 주문·완료 확인합니다.
+            # 특정 상품만 특수 처리하지 않아 수량별 성공·실패 기준을 동일하게 유지합니다.
+            if quantity > 1:
+                self.log_info(f"🛡️ 안전 순차 구매: 총 {quantity}개를 1장씩 결제·확인합니다.")
                 for step in range(1, quantity + 1):
-                    self.log_info(f"🛵 배민 단건 구매 진행 ({step}/{quantity})")
+                    self.log_info(f"🎁 단건 구매 진행 ({step}/{quantity})")
                     result = self.execute(
                         quantity=1,
                         phone_number=phone_number,
@@ -258,7 +258,7 @@ class BaeminModule(BaseModule):
                             False,
                             f"{product_name} 순차 구매 중 {step}/{quantity}번째 결제에서 중단되었습니다: {detail}"
                         )
-                    self.log_success(f"배민 단건 구매 완료 ({step}/{quantity})")
+                    self.log_success(f"단건 구매 완료 ({step}/{quantity})")
                 return self.create_result(True, f"{product_name} {quantity}개를 1장씩 순차 구매 완료했습니다.")
             
             driver = self.web_automation.driver
