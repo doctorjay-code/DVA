@@ -29,6 +29,8 @@ class WebAutomation:
     def __init__(self, headless=None):
         self.driver = None
         self.wait = None
+        self._hwnd = None
+        self._browser_process_id = None
         self.logger = self._setup_logger()
         
         # 설정 로드
@@ -302,97 +304,145 @@ class WebAutomation:
         except Exception as e:
             self.logger.error(f"창 정리 중 오류: {str(e)}")
 
+    def _get_window_process_id(self, hwnd):
+        """Windows 李??몃뱾???뚯쑀 ?꾨줈?몄뒪 ID瑜?諛섑솚?⑸땲??"""
+        if not hwnd:
+            return None
+        try:
+            import ctypes
+            from ctypes import wintypes
+            process_id = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+            return process_id.value or None
+        except Exception:
+            return None
+
+    def _is_valid_browser_hwnd(self, hwnd):
+        """?꾩옱 WebDriver媛 ?앹꽦??Chrome 李쎌씤吏 ?덉쟾?섍쾶 寃利앺빀?덈떎."""
+        if not hwnd:
+            return False
+        try:
+            import ctypes
+            if not ctypes.windll.user32.IsWindow(hwnd):
+                return False
+            if self._browser_process_id:
+                return self._get_window_process_id(hwnd) == self._browser_process_id
+            return False
+        except Exception:
+            return False
+
     def _find_browser_hwnd(self):
-        """브라우저의 Win32 HWND를 찾아 반환합니다."""
+        """?꾩옱 WebDriver??Chrome 李??몃뱾???덉쟾?섍쾶 李얠븘 諛섑솚?⑸땲??"""
         if not self.driver or self.headless:
             return None
-        
+
         try:
             import ctypes
             import time
-            
-            # 브라우저 제목을 일시적으로 고유하게 변경
-            original_title = "DoctorVille" # 기본값
-            try: original_title = self.driver.title
-            except: pass
-            
-            unique_mark = f"DVA_{int(time.time()*1000)}"
+            import uuid
+
+            original_title = "DoctorVille"
             try:
-                self.driver.execute_script(f"document.title = '{unique_mark}'")
-            except:
-                return None
-            
-            time.sleep(0.5) # 제목 반영 대기
-            
-            found_hwnd = [0]
-            
-            # EnumWindows를 사용하여 모든 창을 순회하며 제목에 unique_mark가 포함된 창 찾기
-            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-            
-            def enum_callback(hwnd, lParam):
-                length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    buff = ctypes.create_unicode_buffer(length + 1)
-                    ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
-                    if unique_mark in buff.value:
-                        found_hwnd[0] = hwnd
-                        return False # 찾았으므로 중단
-                return True
-            
-            ctypes.windll.user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
-            
-            # 원래 제목 복구 (실패해도 무관)
-            try:
-                self.driver.execute_script(f"document.title = {json.dumps(original_title)}")
-            except:
+                original_title = self.driver.title
+            except Exception:
                 pass
-            
+
+            # ?몄뒪?댁뒪留덈떎 異⑸룎?섏? ?딅뒗 ?좏겙???꾩옱 ???쒕ぉ???좎떆 諛섏쁺?⑸땲??
+            unique_mark = f"DVA_{uuid.uuid4().hex}"
+            try:
+                self.driver.execute_script(
+                    f"document.title = {json.dumps(unique_mark)}"
+                )
+            except Exception as e:
+                self.logger.warning(f"釉뚮씪?곗? 李??앸퀎???쒕ぉ ?ㅼ젙 ?ㅽ뙣: {e}")
+                return None
+
+            try:
+                time.sleep(0.5)
+                found_hwnd = [0]
+                WNDENUMPROC = ctypes.WINFUNCTYPE(
+                    ctypes.c_bool, ctypes.c_int, ctypes.c_void_p
+                )
+
+                def enum_callback(hwnd, l_param):
+                    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+                    if length <= 0:
+                        return True
+                    title_buffer = ctypes.create_unicode_buffer(length + 1)
+                    ctypes.windll.user32.GetWindowTextW(
+                        hwnd, title_buffer, length + 1
+                    )
+                    if unique_mark not in title_buffer.value:
+                        return True
+
+                    found_hwnd[0] = hwnd
+                    return False
+
+                ctypes.windll.user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
+            finally:
+                # ?쒕ぉ 蹂듦뎄???ㅽ뙣?섎뜑?쇰룄 ?ㅻⅨ 怨꾩젙??李쎌쓣 ????좏깮?섏? ?딆뒿?덈떎.
+                try:
+                    self.driver.execute_script(
+                        f"document.title = {json.dumps(original_title)}"
+                    )
+                except Exception:
+                    pass
+
             if found_hwnd[0]:
-                self.logger.info(f"✅ 브라우저 핸들 획득 성공 (HWND: {found_hwnd[0]})")
+                self._browser_process_id = self._get_window_process_id(found_hwnd[0])
+                self.logger.info(
+                    "釉뚮씪?곗? 李??몃뱾 ?띾뱷 ?깃났 "
+                    f"(HWND: {found_hwnd[0]}, PID: {self._browser_process_id})"
+                )
                 return found_hwnd[0]
-            else:
-                # 💡 마지막 수단: 현재 포커스된 창이 Chrome 계열인지 확인 (방금 띄웠을 가능성 높음)
-                hwnd = ctypes.windll.user32.GetForegroundWindow()
-                length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    buff = ctypes.create_unicode_buffer(length + 1)
-                    ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
-                    if "Chrome" in buff.value or "닥터빌" in buff.value:
-                        self.logger.info(f"✅ 포커스된 창으로 핸들 획득 (HWND: {hwnd})")
-                        return hwnd
-                
-                self.logger.warning("⚠️ 브라우저 핸들을 찾을 수 없습니다.")
+
+            self.logger.warning(
+                "?꾩옱 ?먮룞???몄뒪?댁뒪??Chrome 李쎌쓣 寃利앺븯吏 紐삵뻽?듬땲?? "
+                "?ㅻⅨ Chrome 李쎌? ?쒖뼱?섏? ?딆뒿?덈떎."
+            )
             return None
         except Exception as e:
             if hasattr(self, 'logger'):
-                self.logger.error(f"❌ 브라우저 핸들 찾기 중 예외 발생: {e}")
+                self.logger.error(f"釉뚮씪?곗? 李??몃뱾 李얘린 以??덉쇅 諛쒖깮: {e}")
             return None
 
     def set_visibility(self, visible):
-        """브라우저 창의 가시성을 제어합니다 (Hide/Show)"""
+        """?꾩옱 ?먮룞???몄뒪?댁뒪媛 ?뚯쑀??Chrome 李쎈쭔 ?④린嫄곕굹 ?쒖떆?⑸땲??"""
         if self.headless or not self.driver:
-            return
-            
+            return False
+
         try:
             import ctypes
-            # 핸들이 없으면 다시 찾기 시도
-            if not hasattr(self, '_hwnd') or not self._hwnd:
-                self._hwnd = self._find_browser_hwnd()
-            
-            if self._hwnd:
-                # 💡 ShowWindow를 더 확실하게 먹이기 위해 추가 명령 사용
-                sw_cmd = 5 if visible else 0 # 5: SW_SHOW, 0: SW_HIDE
-                
-                # 가끔 한 번에 안 먹히는 경우가 있어 두 번 호출하거나 관련 API 함께 사용
-                ctypes.windll.user32.ShowWindow(self._hwnd, sw_cmd)
-                
-                # 나타날 때 포커스도 함께 주기
-                if visible:
-                    ctypes.windll.user32.SetForegroundWindow(self._hwnd)
-                    
-                state_str = "보임" if visible else "숨김"
-                self.logger.info(f"🖥️ 브라우저 창 상태 변경: {state_str}")
-            else:
-                self.logger.warning("⚠️ 브라우저 핸들이 없어 가시성을 제어할 수 없습니다.")
+            import time
+
+            # 湲곗〈 ?몃뱾???좏슚?섏? ?딄굅???ㅻⅨ ?꾨줈?몄뒪 ?뚯쑀?대㈃ ?덉쟾?섍쾶 ?ㅼ떆 李얠뒿?덈떎.
+            if not self._is_valid_browser_hwnd(self._hwnd):
+                self._hwnd = None
+                for attempt in range(3):
+                    self._hwnd = self._find_browser_hwnd()
+                    if self._is_valid_browser_hwnd(self._hwnd):
+                        break
+                    self._hwnd = None
+                    if attempt < 2:
+                        time.sleep(0.25)
+
+            if not self._hwnd:
+                self.logger.warning(
+                    "?꾩옱 怨꾩젙??Chrome 李쎌쓣 ?뺤씤?섏? 紐삵빐 李??곹깭瑜?諛붽씀吏 ?딆뒿?덈떎."
+                )
+                return False
+
+            sw_cmd = 5 if visible else 0  # SW_SHOW / SW_HIDE
+            ctypes.windll.user32.ShowWindow(self._hwnd, sw_cmd)
+            if visible:
+                ctypes.windll.user32.SetForegroundWindow(self._hwnd)
+
+            state_str = "蹂댁엫" if visible else "?④?"
+            self.logger.info(
+                "寃利앸맂 Chrome 李??곹깭 蹂寃? "
+                f"{state_str} (HWND: {self._hwnd}, PID: {self._browser_process_id})"
+            )
+            return True
         except Exception as e:
-            self.logger.error(f"❌ 브라우저 가시성 제어 오류: {e}")
+            self.logger.error(f"釉뚮씪?곗? 媛?쒖꽦 ?쒖뼱 ?ㅻ쪟: {e}")
+            return False

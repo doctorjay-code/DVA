@@ -5,6 +5,7 @@ import os
 import threading
 import logging
 import time
+import re
 import pystray
 from datetime import datetime
 from pystray import MenuItem as item
@@ -21,7 +22,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.16"
+VERSION = "v3.9.17"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -1073,7 +1074,11 @@ class DoctorBillApp:
                         elif task_name == 'baemin':
                             p_kw = data.get('product_keyword', '배달의민족')
                             qty = data.get('quantity', 1)
-                            self.on_baemin_remote_purchase(product_keyword=p_kw, quantity=qty)
+                            self.on_baemin_remote_purchase(
+                                product_keyword=p_kw,
+                                quantity=qty,
+                                raw_text=raw_text
+                            )
                         elif task_name == 'answer_batch_registration':
                             raw_batch = data.get('answer_batch') or []
                             answer_batch = [str(answer).strip() for answer in raw_batch if str(answer).strip()]
@@ -1127,7 +1132,37 @@ class DoctorBillApp:
         finally:
             self.root.after(500, self.check_slack_ipc_commands)
 
-    def on_baemin_remote_purchase(self, product_keyword='배달의민족', quantity=1):
+    @staticmethod
+    def _extract_coupon_denomination(text):
+        """문자열에서 쿠폰 액면가를 원 단위 정수로 추출합니다."""
+        normalized = re.sub(r'[\s,]', '', str(text or ''))
+
+        # '10000원', '10000P'처럼 숫자가 직접 표기된 경우
+        direct_match = re.search(r'(\d+)(?:원|P)', normalized, re.IGNORECASE)
+        if direct_match:
+            return int(direct_match.group(1))
+
+        # '1만원', '5천원'처럼 단위를 축약한 경우
+        ten_thousand_match = re.search(r'(\d+)만원', normalized)
+        if ten_thousand_match:
+            return int(ten_thousand_match.group(1)) * 10000
+        thousand_match = re.search(r'(\d+)천원', normalized)
+        if thousand_match:
+            return int(thousand_match.group(1)) * 1000
+
+        # 자주 쓰는 한글 금액 표현
+        korean_amounts = {
+            '일만원': 10000,
+            '만원': 10000,
+            '오천원': 5000,
+            '삼천원': 3000,
+        }
+        for keyword, amount in korean_amounts.items():
+            if keyword in normalized:
+                return amount
+        return None
+
+    def on_baemin_remote_purchase(self, product_keyword='배달의민족', quantity=1, raw_text=''):
         """Slack 원격 요청을 받아 GUI 팝업 없이 지정된 상품과 수량으로 백그라운드 자동 결제 진행"""
         def _run_remote_purchase():
             try:
@@ -1162,14 +1197,32 @@ class DoctorBillApp:
                         "스타벅스": ["스타벅스", "스벅"]
                     }
                     search_keywords = alias_map.get(product_keyword, [product_keyword])
+                    keyword_matches = [
+                        item for item in coupon_list
+                        if any(kw in item.get('name', '') for kw in search_keywords)
+                    ]
+                    requested_value = self._extract_coupon_denomination(raw_text)
 
-                    for item in coupon_list:
-                        name = item.get('name', '')
-                        if any(kw in name for kw in search_keywords):
-                            target_coupon = item
-                            break
-                            
-                    if not target_coupon:
+                    # 슬랙 원문에 액면가가 있으면 상품명 속 액면가와 정확히 일치하는 항목만 선택합니다.
+                    # 예: '카카오페이 만원 한개' -> '카카오페이포인트 10,000P'
+                    if requested_value is not None:
+                        target_coupon = next(
+                            (
+                                item for item in keyword_matches
+                                if self._extract_coupon_denomination(item.get('name', '')) == requested_value
+                            ),
+                            None
+                        )
+                        if not target_coupon:
+                            self.log_message(
+                                f"❌ [Slack 원격 결제 취소] {product_keyword} {requested_value:,}원에 "
+                                "일치하는 상품을 찾지 못했습니다. 다른 금액의 상품은 구매하지 않습니다."
+                            )
+                            return
+                    elif keyword_matches:
+                        # 금액을 말하지 않은 기존 명령은 종전처럼 해당 브랜드의 첫 상품을 선택합니다.
+                        target_coupon = keyword_matches[0]
+                    else:
                         for item in coupon_list:
                             if "배달의민족" in item.get('name', ''):
                                 target_coupon = item
