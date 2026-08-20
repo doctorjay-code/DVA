@@ -259,3 +259,7 @@ docs/
 *.bak_*
 
 *_backup.md
+
+# 로컬 실행 상태 및 보조 스크립트 의존성 파일
+data/slack_quick_panel.lock
+scripts/requirements.txt
