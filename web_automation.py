@@ -139,6 +139,11 @@ class WebAutomation:
             "download.default_directory": modules_dir,
             "download.prompt_for_download": False,
             "download.directory_upgrade": True,
+            # Chrome의 유출된 비밀번호 경고가 자동화 화면을 가리는 것을 방지합니다.
+            # 안전 브라우징은 계속 켜 둔 채 비밀번호 관리자와 유출 감지만 비활성화합니다.
+            "credentials_enable_service": False,
+            "profile.password_manager_enabled": False,
+            "profile.password_manager_leak_detection": False,
             "safebrowsing.enabled": True
         })
         

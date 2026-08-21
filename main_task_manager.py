@@ -1911,7 +1911,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             {"type": "actions", "block_id": "dva_quick_actions", "elements": [
                                 {"type": "button", "text": {"type": "plain_text", "text": "루틴"}, "action_id": "dva_btn_routine", "value": "routine"},
                                 {"type": "button", "text": {"type": "plain_text", "text": "오늘의 세미나"}, "action_id": "dva_btn_today_seminar", "value": "today_seminar"},
-                                {"type": "button", "text": {"type": "plain_text", "text": "배민 만원 한개"}, "action_id": "dva_btn_baemin", "value": "baemin"},
+                                {"type": "button", "text": {"type": "plain_text", "text": "쿠폰"}, "action_id": "dva_btn_coupon", "value": "coupon"},
                             ]},
                         ],
                     }
@@ -1934,7 +1934,44 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                     except Exception as ack_err:
                         self.logger.warning(f"Slack 빠른 실행 수신 확인 전송 오류: {ack_err}")
 
+                def _post_coupon_selection_panel(channel_id):
+                    """쿠폰 버튼을 누르면 구매할 1만 원권 쿠폰 목록을 게시합니다."""
+                    coupon_header = "🎟️ *[DVA | 통합]* 쿠폰 선택"
+                    coupon_body = "구매할 1만 원권 쿠폰을 선택하세요."
+                    coupon_blocks = [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": f"{coupon_header}\n{coupon_body}"}},
+                        {"type": "actions", "block_id": "dva_coupon_actions", "elements": [
+                            {"type": "button", "text": {"type": "plain_text", "text": "배민 만원 한개"}, "action_id": "dva_coupon_baemin_10000", "value": "baemin_10000"},
+                            {"type": "button", "text": {"type": "plain_text", "text": "카카오페이 만원 한개"}, "action_id": "dva_coupon_kakao_10000", "value": "kakao_10000"},
+                            {"type": "button", "text": {"type": "plain_text", "text": "네이버페이 만원 한개"}, "action_id": "dva_coupon_naver_10000", "value": "naver_10000"},
+                        ]},
+                    ]
+                    try:
+                        web_client.chat_postMessage(
+                            channel=channel_id,
+                            text=f"{coupon_header}\n{coupon_body}",
+                            blocks=coupon_blocks,
+                        )
+                    except Exception as coupon_panel_err:
+                        self.logger.warning(f"Slack 쿠폰 선택 패널 전송 오류: {coupon_panel_err}")
+
+                def _is_shared_answer_input_active():
+                    """문제관리 창이 Slack 답안을 기다리는 공유 대기 상태인지 확인합니다."""
+                    lock_path = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "data",
+                        "survey_answer_prompt.lock",
+                    )
+                    try:
+                        with open(lock_path, "r", encoding="utf-8") as lock_file:
+                            payload = json.load(lock_file)
+                        created_at = float(payload.get("created_at", 0))
+                        return bool(payload.get("token")) and (time.time() - created_at <= 360)
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        return False
+
                 def handle_request(client, req):
+
                     response = SocketModeResponse(envelope_id=req.envelope_id)
                     client.send_socket_mode_response(response)
                     if req.type == "interactive":
@@ -1959,8 +1996,35 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             elif action_id == "dva_btn_today_seminar":
                                 _ack_quick_action(channel_id, "📢 세미나 목록")
                                 _write_slack_button_dispatch("seminar", "오늘 세미나")
+                            elif action_id == "dva_btn_coupon":
+                                _post_coupon_selection_panel(channel_id)
+                            elif action_id == "dva_coupon_baemin_10000":
+                                _ack_quick_action(channel_id, "🛵 배달의민족 1만 원권 1개 결제")
+                                _write_slack_button_dispatch(
+                                    "baemin",
+                                    "배민 만원 한개",
+                                    product_keyword="배달의민족",
+                                    quantity=1,
+                                )
+                            elif action_id == "dva_coupon_kakao_10000":
+                                _ack_quick_action(channel_id, "💳 카카오페이 1만 원권 1개 결제")
+                                _write_slack_button_dispatch(
+                                    "baemin",
+                                    "카카오페이 만원 한개",
+                                    product_keyword="카카오페이",
+                                    quantity=1,
+                                )
+                            elif action_id == "dva_coupon_naver_10000":
+                                _ack_quick_action(channel_id, "💚 네이버페이 1만 원권 1개 결제")
+                                _write_slack_button_dispatch(
+                                    "baemin",
+                                    "네이버페이 만원 한개",
+                                    product_keyword="네이버페이",
+                                    quantity=1,
+                                )
+                            # 업데이트 전에 표시된 예전 버튼도 계속 동작하도록 유지합니다.
                             elif action_id == "dva_btn_baemin":
-                                _ack_quick_action(channel_id, "🛵 배달의민족 1개 결제")
+                                _ack_quick_action(channel_id, "🛵 배달의민족 1만 원권 1개 결제")
                                 _write_slack_button_dispatch(
                                     "baemin",
                                     "배민 만원 한개",
@@ -2067,17 +2131,21 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 ans_match = None
                                 custom_tag = ""
 
-                                # 1차: "답 342", "정답 3 4 2", "더스피로킷 답 342" 등 '답'/'정답' 키워드 포함 시
-                                if re.search(r'(?:답|정답)', clean_t, re.IGNORECASE):
+                                # 공유 문제관리 창이 현재 Slack 답안을 기다리는 경우에만 답안을 해석합니다.
+                                if _is_shared_answer_input_active() and re.search(r'(?:답|정답)', clean_t, re.IGNORECASE):
+
                                     m_ans = re.search(r'(?:답|정답)\s*[:=]?\s*(.+)$', clean_t, re.IGNORECASE)
                                     if m_ans:
                                         ans_match = m_ans
                                         custom_tag = clean_t[:m_ans.start()].strip()
 
-                                # 2차: "더스피로킷 342", "더스피로킷 4OX", "4OX", "342" 등 텍스트 뒷부분이 숫자/O/X/동그라미숫자로 끝나는 경우
-                                if not ans_match:
-                                    m_ans = re.search(r'([0-9oOxX①-⑩\s,\-번]+)$', clean_t)
-                                    if m_ans and m_ans.group(1).strip():
+                                # 접두어 없이 보내는 답안은 숫자·O/X·구분자만으로 된 입력 전체일 때만 허용합니다.
+                                if _is_shared_answer_input_active() and not ans_match:
+                                    # 시간·날짜 등 일반 문장을 답안으로 오인하지 않도록 전체 일치로 검사합니다.
+                                    m_ans = re.fullmatch(r'([0-9oOxX①-⑩\s,\-번]+)', clean_t)
+
+
+                                    if m_ans and m_ans.group(0).strip():
                                         ans_match = m_ans
                                         custom_tag = clean_t[:m_ans.start()].strip()
 
@@ -2138,9 +2206,10 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                         product_keyword = ""
                                         task_desc = "⚠️ 세미나 답안은 정확히 3개를 입력해 주세요"
 
-                            if not task_name:
-                                # Gemini AI Agent 자연어 의도 파싱 시도
+                            if not task_name and (event_type == "app_mention" or event.get("channel_type") == "im"):
+                                # 공개 채널의 일반 대화는 해석하지 않고, 멘션 또는 DM에서만 자연어 의도 파싱을 시도합니다.
                                 gemini_key = settings.get('gemini_api_key')
+
                                 if gemini_key:
                                     task_name, task_desc, product_keyword, quantity = self._parse_slack_intent_with_gemini(text, gemini_key)
 
