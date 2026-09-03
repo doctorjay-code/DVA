@@ -867,48 +867,63 @@ class SurveyModule(BaseModule):
             
             return {"success": False, "reason": "failed", "message": f"팝업 창에서 세미나 풀이 버튼 클릭 실패: {err_msg}"}
     
+    def _is_survey_window_opened(self):
+        """새로운 설문 창(survey.villeway.com)이 이미 열려있는지 확인합니다."""
+        try:
+            current_handle = self.web_automation.driver.current_window_handle
+            for handle in self.web_automation.driver.window_handles:
+                if handle != current_handle:
+                    try:
+                        self.web_automation.driver.switch_to.window(handle)
+                        if "survey.villeway.com" in self.web_automation.driver.current_url:
+                            self.web_automation.driver.switch_to.window(current_handle)
+                            return True
+                    except Exception:
+                        continue
+            self.web_automation.driver.switch_to.window(current_handle)
+        except Exception:
+            pass
+        return False
+
     def auto_click_survey_button_in_agree_popup(self, target_title=None):
         """개인정보 동의 팝업에서 설문하기 버튼을 자동으로 클릭합니다."""
         try:
-            self.log_info("개인정보 동의 팝업 대기 중...")
-            
-            # 개인정보 동의 팝업이 나타날 때까지 대기
-            self.web_automation.wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "#agreeInfo"))
-            )
-            
-            self.log_info("개인정보 동의 팝업 발견")
-            self.log_info("동의 체크박스 자동 체크 중...")
-            
-            # 동의 체크박스 자동 체크
-            try:
-                agree_checkbox = self.find_element_safe(By.CSS_SELECTOR, "#agreeInfo #agree")
+            # 1. 동의 팝업 없이 설문 창이 바로 열리는 세미나인지 확인
+            time.sleep(1)
+            if self._is_survey_window_opened():
+                self.log_info("ℹ 개인정보 동의가 필요 없는 세미나로 확인되어 바로 설문화면으로 이동합니다.")
+            else:
+                self.log_info("개인정보 동의 팝업 대기 중...")
                 
-                # 체크박스가 체크되지 않은 경우에만 체크
-                if not agree_checkbox.is_selected():
-                    try:
-                        agree_checkbox.click()
-                    except Exception:
-                        self.web_automation.driver.execute_script("arguments[0].click();", agree_checkbox)
+                # 동의 체크박스 자동 체크 (실패해도 무방하므로 try-except)
+                try:
+                    self.web_automation.driver.execute_script("""
+                        var chk = document.querySelector("#agreeInfo #agree");
+                        if (chk && !chk.checked) {
+                            chk.checked = true;
+                        }
+                        var btn = document.querySelector("#agreeInfo .btn_answer");
+                        if (btn) btn.classList.add("on");
+                    """)
                     self.log_info("✅ 동의 체크박스 자동 체크 완료")
-                else:
-                    self.log_info("동의 체크박스가 이미 체크되어 있습니다")
-                        
-            except Exception as e:
-                self.log_warning(f"동의 체크박스 처리 중 오류: {str(e)}")
-            
-            # 설문하기 버튼 찾기 및 클릭
-            self.log_info("설문하기 버튼 검색 중...")
-            
-            # 설문하기 버튼 찾기 (안전하게)
-            survey_button = self.find_element_safe(By.CSS_SELECTOR, "#agreeInfo .btn_answer")
-            
-            self.log_info("설문하기 버튼 발견")
-            
-            # 버튼 클릭
-            survey_button.click()
-            
-            self.log_info("✅ 설문하기 버튼 자동 클릭 완료")
+                except Exception as e:
+                    self.log_warning(f"동의 체크박스 처리 중 오류: {str(e)}")
+                
+                # 설문하기 버튼 찾기 및 클릭
+                self.log_info("설문하기 버튼 검색 중...")
+                try:
+                    survey_button = self.find_element_safe(By.CSS_SELECTOR, "#agreeInfo .btn_answer", timeout=5)
+                    self.log_info("설문하기 버튼 발견")
+                    try:
+                        survey_button.click()
+                    except Exception:
+                        self.web_automation.driver.execute_script("arguments[0].click();", survey_button)
+                    self.log_info("✅ 설문하기 버튼 자동 클릭 완료")
+                except Exception as e:
+                    if self._is_survey_window_opened():
+                        self.log_info("ℹ 이미 설문 창이 열렸습니다.")
+                    else:
+                        self.log_warning(f"설문하기 버튼 클릭 중 오류: {str(e)}")
             self.log_info("설문 페이지로 이동 중...")
             
             # [프로그램 GUI 로그 및 카카오톡 알림 동시 전송] 세미나 풀이 시작 알림

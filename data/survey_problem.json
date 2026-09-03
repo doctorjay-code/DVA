@@ -242,16 +242,19 @@
     "answer_num": "2"
   },
   "우루사 300mg은 어떤 상병코드로 급여 처방이 가능할까요": {
-    "answer": "1",
-    "category": "우루사"
+    "answer": "E66.8(기타비만, 병적비만)",
+    "category": "우루사",
+    "answer_num": "1"
   },
   "해외 가이드라인에서는 UDCA를 급격한 체중감소를 겪은 환자에게 몇 개월 처방하라고 가이드 되어있을까요": {
-    "answer": "2",
-    "category": "우루사"
+    "answer": "6개월 이상",
+    "category": "우루사",
+    "answer_num": "2"
   },
   "우루사 300mg을 E66.8(기타비만) 상병코드와 jx999(급격한 체중 감소로 담석 예방을 위해 처방) 기입 후, 간수치가 어느 정도 되어야 1일 bid 급여 처방이 가능할까요": {
-    "answer": "1",
-    "category": "우루사"
+    "answer": "간수치 필요 없음",
+    "category": "우루사",
+    "answer_num": "1"
   },
   "AiTiA LVSD의 진단 기준으로 가장 적절한 것은 무엇입니까": {
     "answer": "좌심실 수축기 기능 저하(LVEF ≤40%) 가능성을 선별하는 진단 보조 소프트웨어이다",
@@ -697,12 +700,12 @@
     "answer_num": "2"
   },
   "IDEN 2025에서 발표된 임상연구 결과, WAYMED ENDO 사용군의 선종 발견율(ADR)은 비사용군 대비 몇 배 향상되었습니까": {
-    "answer": "3",
+    "answer": "1.53배 (35.1% vs 22.0%)",
     "category": "WAYMED ENDO",
     "answer_num": "3"
   },
   "WAYMED ENDO를 도입할 때, 기존에 사용 중인 내시경 장비와 관련하여 옳은 설명은 무엇입니까": {
-    "answer": "4",
+    "answer": "기존 내시경 장비에 웨이센 하드웨어를 연결하는 것만으로 즉시 구동 가능하다.",
     "category": "WAYMED ENDO",
     "answer_num": "4"
   },
