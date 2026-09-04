@@ -22,11 +22,12 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.20"
+VERSION = "v3.9.21"
 
 class DoctorBillApp:
     def __init__(self, root):
         self.root = root
+        self.app_start_time = time.time()
         
         # 공통 설정 및 사용자 정보 상태 관리
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -111,6 +112,7 @@ class DoctorBillApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.setup_tray_icon()
         
+        self.root.after(100, self.send_startup_notification)
         self.root.after(200, self.start_update_check)
         self.root.after(500, self.check_slack_ipc_commands)
         self.root.after(1000, self.check_scheduled_tasks)
@@ -193,8 +195,9 @@ class DoctorBillApp:
             'log_and_update_status': self.log_and_update_status,
             'show_seminar_dialog': self.show_seminar_dialog,
             'update_seminar_dialog': self.update_seminar_dialog,
-            'notify_kakao': lambda msg, cat="notify_startup_summary": self.task_manager.notifier.send_notification(msg, category=cat),
-            'notify_slack': lambda msg: self.task_manager.notifier.slack_notifier.send_slack_message(msg, category="notify_quiz"),
+            'notify_kakao': lambda msg, cat="notify_startup_summary", **kwargs: self.task_manager.notifier.send_notification(msg, category=cat, **kwargs),
+            'notify_slack': lambda msg, cat="notify_quiz", **kwargs: self.task_manager.notifier.send_notification(msg, category=cat, **kwargs),
+            'notify_success': lambda msg, cat="notify_survey", **kwargs: self.task_manager.notifier.send_notification(msg, category=cat, **kwargs),
             'gui_instance': self
         }
 
@@ -707,6 +710,21 @@ class DoctorBillApp:
         # 💡 브라우저 창도 같이 다시 표시
         self.task_manager.set_browser_visibility(True)
 
+    def send_startup_notification(self):
+        """프로그램 실행 직후 슬랙/카카오로 시작 알림 전송"""
+        def _send():
+            import os
+            try:
+                account_name = os.environ.get('ACCOUNT_NAME', '').strip()
+                prefix = f"[{account_name}] " if account_name else ""
+                now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                start_msg = f"🚀 {prefix}DVA 프로그램이 시작되었습니다.\n• 시작 일시: {now_str}"
+                self.task_manager.notifier.send_notification(start_msg, category="notify_startup_summary")
+            except Exception as e:
+                logging.warning(f"시작 알림 전송 실패: {e}")
+
+        threading.Thread(target=_send, daemon=True).start()
+
     def on_closing(self, icon=None, item=None):
         self.log_message("프로그램을 종료합니다...")
         
@@ -720,13 +738,24 @@ class DoctorBillApp:
             except:
                 pass
         
-        # 2. 백그라운드에서 크롬을 안전하게 끄고 완전히 프로세스를 종료합니다
+        # 2. 백그라운드에서 종료 알림을 전송하고 크롬을 안전하게 끈 뒤 완전히 프로세스를 종료합니다
         def fast_exit():
+            import os
+            try:
+                account_name = os.environ.get('ACCOUNT_NAME', '').strip()
+                prefix = f"[{account_name}] " if account_name else ""
+                now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                pts = self.user_info.get('points', '')
+                pts_str = f" (보유 포인트: {pts})" if pts and pts != '0 P' else ""
+                exit_msg = f"🛑 {prefix}DVA 프로그램이 종료되었습니다.{pts_str}\n• 종료 일시: {now_str}"
+                self.task_manager.notifier.send_notification(exit_msg, category="notify_startup_summary")
+            except Exception as e:
+                logging.warning(f"종료 알림 전송 실패: {e}")
+
             try:
                 self.task_manager.cleanup() # 크롬 종료 대기 (1~2초 소요)
             except:
                 pass
-            import os
             os._exit(0) # 완벽한 종료
             
         threading.Thread(target=fast_exit, daemon=True).start()
@@ -1006,6 +1035,11 @@ class DoctorBillApp:
                 
                 import time
                 now_ts = time.time()
+
+                # 프로그램 시작 시점 이전에 발행된 과거 명령어는 절대 실행하지 않음
+                if timestamp < getattr(self, 'app_start_time', 0):
+                    return
+
                 task_name_candidate = data.get("task_name")
                 last_task = getattr(self, '_last_processed_slack_task', None)
                 last_task_time = getattr(self, '_last_processed_slack_task_time', 0)
@@ -1053,7 +1087,8 @@ class DoctorBillApp:
                             'points': '💰 포인트/상태 갱신',
                             'seminar': '📢 세미나 목록',
                             'survey': '📋 세미나 설문',
-                            'baemin': '🛵 포인트 사용 / 쿠폰 구매'
+                            'baemin': '🛵 포인트 사용 / 쿠폰 구매',
+                            'exit': '🛑 프로그램 종료'
                         }
                         task_desc = task_desc_map.get(task_name, task_name)
                         self.log_message(f"📱 [Slack 원격 요청] {task_desc} 실행 요청 수신")
@@ -1071,6 +1106,13 @@ class DoctorBillApp:
                             self.on_survey_open()
                         elif task_name == 'points':
                             self.task_manager.execute_module_by_config('points', gui_callbacks)
+                        elif task_name in ['exit', 'close', 'quit']:
+                            try:
+                                if os.path.exists(dispatch_file):
+                                    os.remove(dispatch_file)
+                            except Exception:
+                                pass
+                            self.on_closing()
                         elif task_name == 'baemin':
                             p_kw = data.get('product_keyword', '배달의민족')
                             qty = data.get('quantity', 1)
@@ -1079,54 +1121,11 @@ class DoctorBillApp:
                                 quantity=qty,
                                 raw_text=raw_text
                             )
-                        elif task_name == 'answer_batch_registration':
-                            raw_batch = data.get('answer_batch') or []
-                            answer_batch = [str(answer).strip() for answer in raw_batch if str(answer).strip()]
+                        elif task_name in ['answer_batch_registration', 'answer_batch_invalid', 'answer_target_registration', 'answer_registration']:
                             from modules.survey_module import SurveyModule
-
-                            if len(answer_batch) == 3:
-                                # 답안 묶음은 현재 대기 중인 문항이 아니라 문항 번호 1·2·3에 고정한다.
-                                # 새 묶음이 도착하면 이전 단일 답안 대기열은 폐기하여 잔여 답안 오염을 막는다.
-                                SurveyModule.pending_answer_batch = {
-                                    1: answer_batch[0],
-                                    2: answer_batch[1],
-                                    3: answer_batch[2],
-                                }
-                                SurveyModule.pending_answer_queue = []
-                                self.log_message(
-                                    f"✅ [Slack 세미나 답안 묶음 등록] 1번='{answer_batch[0]}', "
-                                    f"2번='{answer_batch[1]}', 3번='{answer_batch[2]}'"
-                                )
-                            else:
-                                self.log_message("⚠ [Slack 세미나 답안 묶음 무시] 답안은 정확히 3개여야 합니다.")
-                        elif task_name == 'answer_batch_invalid':
-                            self.log_message("⚠ [Slack 세미나 답안 거부] `답 2 3 4`처럼 정확히 3개를 입력해 주세요.")
-                        elif task_name == 'answer_registration':
-                            answer_val = data.get('answer_val') or data.get('product_keyword') or ''
-
-                            answer_queue = data.get('answer_queue') or []
-                            from modules.survey_module import SurveyModule
-                            from modules.survey_problem import SurveyProblemManager
-                            
-                            # ✅ 단일 등록 경로: 첫 답 + 나머지 모두 보존 (이중 등록 방지)
-                            #    대기 중 문제가 있으면 첫 답은 해당 문제에 즉시 등록하고,
-                            #    없으면 첫 답을 포함한 전체 답을 대기열에 보존하여 유실 방지.
-                            pending = getattr(SurveyModule, 'current_pending_quiz', None)
-                            all_answers = [a for a in ([answer_val] + list(answer_queue)) if a]
-                            
-                            if pending and pending.get('question') and answer_val:
-                                pm = SurveyProblemManager()
-                                pm.add_quiz(pending['question'], answer_val, category=pending.get('category', ''))
-                                queued = list(answer_queue)
-                            else:
-                                queued = all_answers
-                            
-                            if queued:
-                                existing = list(getattr(SurveyModule, 'pending_answer_queue', None) or [])
-                                SurveyModule.pending_answer_queue = existing + queued
-                            
-                            queue_str = f" (대기열: {', '.join(queued)})" if queued else ""
-                            self.log_message(f"✅ [Slack 원격 정답 등록] 정답 '{answer_val}'{queue_str} 등록/대기열 반영 완료")
+                            msg = SurveyModule.register_remote_answer(task_name, data)
+                            if msg:
+                                self.log_message(msg)
         except Exception as ipc_err:
             self.log_message(f"⚠ Slack IPC 명령 처리 오류: {ipc_err}")
         finally:

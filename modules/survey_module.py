@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 세미나 풀이 모듈
 닥터빌 세미나 세미나 풀이 기능을 담당합니다.
@@ -39,6 +39,108 @@ ERROR_SURVEY_BUTTON_CLICK = "세미나 풀이 버튼 클릭 실패"
 class SurveyModule(BaseModule):
     _is_running = False  # 정적 변수로 실행 중 여부 관리
     _lock = threading.Lock()
+    current_pending_quiz = None
+    pending_answer_queue = []
+    pending_answer_batch = {}
+
+    @classmethod
+    def register_remote_answer(cls, task_name: str, data: dict) -> str:
+        """Slack 원격 답안 등록 로직을 캡슐화하여 처리합니다."""
+        from .survey_problem import SurveyProblemManager
+
+        if task_name == 'answer_batch_registration':
+            raw_batch = data.get('answer_batch') or []
+            answer_batch = [str(a).strip() for a in raw_batch if str(a).strip()]
+            if len(answer_batch) == 3:
+                cls.pending_answer_batch = {
+                    1: answer_batch[0],
+                    2: answer_batch[1],
+                    3: answer_batch[2],
+                }
+                cls.pending_answer_queue = []
+                return (
+                    f"✅ [Slack 세미나 답안 묶음 등록] 1번='{answer_batch[0]}', "
+                    f"2번='{answer_batch[1]}', 3번='{answer_batch[2]}'"
+                )
+            return "⚠ [Slack 세미나 답안 묶음 무시] 답안은 정확히 3개여야 합니다."
+
+        elif task_name == 'answer_batch_invalid':
+            return "⚠ [Slack 세미나 답안 거부] `답 2 3 4`처럼 정확히 3개를 입력해 주세요."
+
+        elif task_name == 'answer_target_registration':
+            target_num = data.get('target_question_num')
+            answer_val = data.get('answer_val') or ''
+
+            # 1) 현재 대기 중인 퀴즈가 해당 문항 번호와 일치하면 즉시 DB 등록
+            pending = getattr(cls, 'current_pending_quiz', None)
+            if not pending:
+                try:
+                    pending_file = os.path.join("data", "current_pending_quiz.json")
+                    if os.path.exists(pending_file):
+                        with open(pending_file, "r", encoding="utf-8") as pf:
+                            pending = json.load(pf)
+                except Exception:
+                    pending = None
+
+            if pending and str(pending.get('question_number', '')) == str(target_num) and answer_val:
+                pm = SurveyProblemManager()
+                pm.add_quiz(pending['question'], answer_val, category=pending.get('category', ''))
+                try:
+                    pending_file = os.path.join("data", "current_pending_quiz.json")
+                    if os.path.exists(pending_file):
+                        os.remove(pending_file)
+                except Exception:
+                    pass
+
+            # 2) 세미나 3문항 배치(pending_answer_batch)의 해당 번호에도 안전하게 반영
+            current_batch = getattr(cls, 'pending_answer_batch', None) or {}
+            try:
+                current_batch[int(target_num)] = str(answer_val).strip()
+            except (ValueError, TypeError):
+                current_batch[str(target_num)] = str(answer_val).strip()
+            cls.pending_answer_batch = current_batch
+            return f"✅ [Slack 원격 정답 등록] 문제 {target_num}번 정답 '{answer_val}' 지정 등록 완료"
+
+        elif task_name == 'answer_registration':
+            answer_val = data.get('answer_val') or data.get('product_keyword') or ''
+            answer_queue = data.get('answer_queue') or []
+
+            # 1) 메모리 또는 프로세스 공용 파일에서 대기 중인 퀴즈 확인
+            pending = getattr(cls, 'current_pending_quiz', None)
+            if not pending:
+                try:
+                    pending_file = os.path.join("data", "current_pending_quiz.json")
+                    if os.path.exists(pending_file):
+                        with open(pending_file, "r", encoding="utf-8") as pf:
+                            pending = json.load(pf)
+                except Exception:
+                    pending = None
+
+            log_msg = ""
+            if pending and pending.get('question') and answer_val:
+                pm = SurveyProblemManager()
+                pm.add_quiz(pending['question'], answer_val, category=pending.get('category', ''))
+                try:
+                    pending_file = os.path.join("data", "current_pending_quiz.json")
+                    if os.path.exists(pending_file):
+                        os.remove(pending_file)
+                except Exception:
+                    pass
+                log_msg = f"✅ [Slack 원격 정답 등록] 대기 문제('{pending.get('display_question', '')[:20]}')에 정답 '{answer_val}' 등록 완료"
+            else:
+                if answer_val and not answer_queue:
+                    log_msg = f"ℹ️ [Slack 원격 정답 등록] 현재 대기 중인 문제가 없어 단일 정답 '{answer_val}'의 임의 대기열 적재를 건너뜁니다."
+
+            queued = list(answer_queue)
+            if queued:
+                existing = list(getattr(cls, 'pending_answer_queue', None) or [])
+                cls.pending_answer_queue = existing + queued
+                queue_msg = f"✅ [Slack 원격 정답 대기열] (대기열: {', '.join(queued)}) 반영 완료"
+                log_msg = f"{log_msg}\n{queue_msg}" if log_msg else queue_msg
+
+            return log_msg
+
+        return ""
 
     def __init__(self, web_automation, gui_logger=None):
         super().__init__(web_automation, gui_logger)
@@ -1455,13 +1557,24 @@ class SurveyModule(BaseModule):
                             By.CSS_SELECTOR, f'input[type="radio"][name="{name}"]:checked'
                         )
                     except:
-                        # 선택되지 않은 경우 첫 번째 라디오 버튼 클릭
+                        # 선택되지 않은 경우: 먼저 퀴즈 문항인지 검사!
+                        # 퀴즈 문항은 임의 선택(1번 찍기) 절대 불가 → 임의 제출 방지를 위해 즉시 실패 반환
+                        try:
+                            parent_li = radio.find_element(By.XPATH, "./ancestor::li")
+                            li_text = parent_li.text if parent_li else ""
+                            if "[퀴즈]" in li_text or "퀴즈" in li_text:
+                                self.log_error(f"❌ 미선택된 필수 항목이 퀴즈 문항입니다. 임의 제출(찍기) 방지를 위해 설문을 즉시 중단합니다: {li_text[:40]}...")
+                                return False
+                        except Exception:
+                            pass
+
+                        # 일반 설문 문항인 경우에만 첫 번째 라디오 버튼 클릭
                         try:
                             first_radio = self.web_automation.driver.find_element(
                                 By.CSS_SELECTOR, f'input[type="radio"][name="{name}"]'
                             )
                             first_radio.click()
-                            self.log_info(f"재시도: 라디오 버튼 그룹 '{name}' 첫 번째 옵션 선택")
+                            self.log_info(f"재시도: 일반 설문 라디오 버튼 그룹 '{name}' 첫 번째 옵션 선택")
                         except:
                             pass
                     processed_groups.add(name)
@@ -1553,7 +1666,7 @@ class SurveyModule(BaseModule):
             self.log_error(f"재시도 중 오류: {str(e)}")
             return False
     
-    def _wait_for_shared_quiz_answer(self, question_text, question_number):
+    def _wait_for_shared_quiz_answer(self, question_text, question_number, num_options=4, is_ox=False):
         """Wait for an answer while allowing only one account to prompt Slack."""
         if not (hasattr(self, 'gui_callbacks') and 'gui_instance' in self.gui_callbacks):
             return None
@@ -1616,6 +1729,14 @@ class SurveyModule(BaseModule):
                             'category': category,
                             'question_number': question_number,
                         }
+                        try:
+                            pending_file = os.path.join("data", "current_pending_quiz.json")
+                            os.makedirs("data", exist_ok=True)
+                            with open(pending_file, "w", encoding="utf-8") as pf:
+                                json.dump(SurveyModule.current_pending_quiz, pf, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+
                         self.log_warning(f"Question {question_number}: answer missing; opening the shared problem manager.")
                         gui.root.after(
                             0,
@@ -1632,9 +1753,50 @@ class SurveyModule(BaseModule):
                                 "[\uc138\ubbf8\ub098 \ud034\uc988 \uc815\ub2f5 \ubbf8\ub4f1\ub85d]\n"
                                 f"\ubb38\uc81c {question_number}\ubc88\uc758 \uc815\ub2f5\uc744 \uae30\ub2e4\ub9ac\uace0 \uc788\uc2b5\ub2c8\ub2e4.\n"
                                 f"Q: {display_question}\n\n"
-                                "Slack\uc5d0 \uc815\ub2f5\uc744 \uc785\ub825\ud558\uba74 \uc790\ub3d9\uc73c\ub85c \uacc4\uc18d\ud569\ub2c8\ub2e4."
+                                "Slack \ubc84\ud2bc\uc744 \ub204\ub974\uac70\ub098 \uc815\ub2f5\uc744 \uc785\ub825\ud558\uc2dc\uba74 \uc790\ub3d9\uc73c\ub85c \uacc4\uc18d\ud569\ub2c8\ub2e4."
                             )
-                            self.gui_callbacks['notify_kakao'](alert, cat="notify_survey")
+
+                            # 🔘 Slack 인터랙티브 Block Kit 버튼 생성
+                            btn_elements = []
+                            if is_ox:
+                                btn_elements = [
+                                    {"type": "button", "text": {"type": "plain_text", "text": "⭕ O"}, "action_id": f"dva_quiz_ans_{question_number}_O", "value": "O"},
+                                    {"type": "button", "text": {"type": "plain_text", "text": "❌ X"}, "action_id": f"dva_quiz_ans_{question_number}_X", "value": "X"},
+                                ]
+                            else:
+                                opt_cnt = max(2, min(int(num_options or 4), 5))
+                                circled_map = {1: "①", 2: "②", 3: "③", 4: "④", 5: "⑤"}
+                                for opt_i in range(1, opt_cnt + 1):
+                                    c_sym = circled_map.get(opt_i, str(opt_i))
+                                    btn_elements.append({
+                                        "type": "button",
+                                        "text": {"type": "plain_text", "text": f"{c_sym}번"},
+                                        "action_id": f"dva_quiz_ans_{question_number}_{opt_i}",
+                                        "value": str(opt_i)
+                                    })
+
+                            slack_blocks = [
+                                {
+                                    "type": "section",
+                                    "text": {
+                                        "type": "mrkdwn",
+                                        "text": (
+                                            f"❓ *[세미나 퀴즈 정답 미등록]*\n"
+                                            f"*문제 {question_number}번*의 정답을 선택해 주세요.\n\n"
+                                            f"*Q:* {display_question}"
+                                        )
+                                    }
+                                },
+                                {
+                                    "type": "actions",
+                                    "block_id": f"dva_quiz_actions_q{question_number}",
+                                    "elements": btn_elements
+                                }
+                            ]
+                            try:
+                                self.gui_callbacks['notify_kakao'](alert, cat="notify_survey", blocks=slack_blocks)
+                            except Exception as notify_err:
+                                self.log_error(f"슬랙 퀴즈 알림 전송 실패: {notify_err}")
 
                 try:
                     _ = self.web_automation.driver.title
@@ -1652,6 +1814,15 @@ class SurveyModule(BaseModule):
             pending = getattr(SurveyModule, 'current_pending_quiz', None)
             if pending and pending.get('question') == question_text:
                 SurveyModule.current_pending_quiz = None
+            try:
+                pending_file = os.path.join("data", "current_pending_quiz.json")
+                if os.path.exists(pending_file):
+                    with open(pending_file, "r", encoding="utf-8") as pf:
+                        f_data = json.load(pf)
+                    if f_data.get('question') == question_text:
+                        os.remove(pending_file)
+            except Exception:
+                pass
 
     def auto_fill_questions_in_order(self):
         """문제 순서대로 하나씩 처리합니다."""
@@ -1765,7 +1936,22 @@ class SurveyModule(BaseModule):
                                     quiz_answer = None
 
                             if not quiz_answer:
-                                quiz_answer = self._wait_for_shared_quiz_answer(question_text, question_number)
+                                num_opts = 4
+                                is_ox_quiz = False
+                                try:
+                                    q_radios = question.find_elements(By.CSS_SELECTOR, 'input[type="radio"]')
+                                    if q_radios:
+                                        num_opts = len(q_radios)
+                                        if num_opts == 2:
+                                            lbls = [self._get_radio_label_text(r).strip().upper() for r in q_radios]
+                                            if set(lbls) == {'O', 'X'} or ('O' in lbls and 'X' in lbls):
+                                                is_ox_quiz = True
+                                except Exception:
+                                    pass
+
+                                quiz_answer = self._wait_for_shared_quiz_answer(
+                                    question_text, question_number, num_options=num_opts, is_ox=is_ox_quiz
+                                )
                                 if not quiz_answer:
                                     return False
 
@@ -2104,6 +2290,9 @@ class SurveyModule(BaseModule):
                                 
                     except Exception as e:
                         self.log_error(f"문제 {question_number}번 처리 중 오류: {str(e)}")
+                        if is_quiz:
+                            self.log_error(f"❌ 퀴즈 문제 {question_number}번 처리 실패로 설문을 즉시 중단합니다 (임의 제출 방지).")
+                            return False
                         pass
                     
                     if question_processed:
@@ -2111,6 +2300,9 @@ class SurveyModule(BaseModule):
                     
                 except Exception as e:
                     self.log_error(f"문제 {question_number}번 처리 중 오류: {str(e)}")
+                    if is_quiz:
+                        self.log_error(f"❌ 퀴즈 문제 {question_number}번 처리 실패로 설문을 즉시 중단합니다 (임의 제출 방지).")
+                        return False
                     continue
             
             self.log_info(f"✅ 총 {processed_count}개 문제 순서대로 처리 완료")

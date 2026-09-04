@@ -89,10 +89,10 @@ class NotificationManager:
             self.logger.error(f"카카오 토큰 갱신 중 예외 발생: {str(e)}")
             return False
 
-    def send_notification(self, text, category=None):
+    def send_notification(self, text, category=None, blocks=None):
         """카카오톡 및 Slack 알림 일괄 전송 디스패처"""
         kakao_success = self.send_kakao_message(text, category=category)
-        slack_success = self.slack_notifier.send_slack_message(text, category=category)
+        slack_success = self.slack_notifier.send_slack_message(text, category=category, blocks=blocks)
         return kakao_success or slack_success
 
     def send_kakao_message(self, text, category=None):

@@ -1380,15 +1380,16 @@ class SettingsDialog:
 
         # Slack 알림 설정
         self.setting_vars['slack_notify_enabled'] = tk.BooleanVar(value=self.get_setting('slack_notify_enabled'))
-        self.setting_vars['slack_webhook_url'] = tk.StringVar(value=self.get_setting('slack_webhook_url') or "")
+        self.setting_vars['slack_channel'] = tk.StringVar(value=self.get_setting('slack_channel') or "")
         self.setting_vars['slack_bot_token'] = tk.StringVar(value=self.get_setting('slack_bot_token') or "")
         self.setting_vars['slack_app_token'] = tk.StringVar(value=self.get_setting('slack_app_token') or "")
+        self.setting_vars['slack_webhook_url'] = tk.StringVar(value=self.get_setting('slack_webhook_url') or "")
 
         slack_header_frame = tk.Frame(notify_frame, bg='#f0f0f0')
         slack_header_frame.pack(fill='x', pady=(10, 0))
 
         slack_check = tk.Checkbutton(
-            slack_header_frame, text="📢 Slack 알림 받기 (Hermes Agent / Webhook)", variable=self.setting_vars['slack_notify_enabled'],
+            slack_header_frame, text="📢 Slack 알림 받기 (Bot API / Socket Mode)", variable=self.setting_vars['slack_notify_enabled'],
             font=("맑은 고딕", 11), bg='#f0f0f0', fg='#2c3e50',
             activebackground='#f0f0f0', activeforeground='#2c3e50'
         )
@@ -1403,30 +1404,34 @@ class SettingsDialog:
         slack_help_btn.pack(side='left', padx=5, pady=(4, 0))
         ToolTip(slack_help_btn, "Slack 알림 설정 및 아이폰 원격 제어 명령어를 확인합니다.")
 
-        slack_url_frame = tk.Frame(notify_frame, bg='#f0f0f0')
-        slack_url_frame.pack(fill='x', padx=25, pady=2)
+        # 📢 Slack 채널 ID 입력 프레임 (신형 권장 방식)
+        slack_ch_frame = tk.Frame(notify_frame, bg='#f0f0f0')
+        slack_ch_frame.pack(fill='x', padx=25, pady=2)
 
-        lbl_slack_url = tk.Label(slack_url_frame, text="🔗 Webhook URL:", font=("맑은 고딕", 9), bg='#f0f0f0', fg='#2c3e50')
-        lbl_slack_url.pack(side='left')
+        lbl_slack_ch = tk.Label(slack_ch_frame, text="📢 채널 ID (권장):", font=("맑은 고딕", 9, "bold"), bg='#f0f0f0', fg='#2c3e50')
+        lbl_slack_ch.pack(side='left')
 
-        slack_url_entry = tk.Entry(slack_url_frame, textvariable=self.setting_vars['slack_webhook_url'], width=35, font=("맑은 고딕", 9))
-        slack_url_entry.pack(side='left', padx=5)
+        slack_ch_entry = tk.Entry(slack_ch_frame, textvariable=self.setting_vars['slack_channel'], width=22, font=("맑은 고딕", 9))
+        slack_ch_entry.pack(side='left', padx=5)
+        ToolTip(slack_ch_entry, "알림을 받을 Slack 채널 ID (예: C0BUBA96AMD). 채널 우클릭 > 채널 세부정보 맨 아래에서 확인 가능합니다.\n※ 채널에서 '/invite @봇이름'으로 봇을 초대해야 합니다.")
 
         def _test_slack():
             from modules.slack_notifier import SlackNotifier
-            url = self.setting_vars['slack_webhook_url'].get()
-            success, msg = SlackNotifier.send_test_message(url)
+            ch = self.setting_vars['slack_channel'].get().strip()
+            bot_token = self.setting_vars['slack_bot_token'].get().strip()
+            url = self.setting_vars['slack_webhook_url'].get().strip()
+            success, msg = SlackNotifier.send_test_message(channel=ch, bot_token=bot_token, webhook_url=url)
             if success:
                 messagebox.showinfo("Slack 알림 테스트", msg, parent=self.settings_window)
             else:
                 messagebox.showerror("Slack 알림 테스트", msg, parent=self.settings_window)
 
         slack_test_btn = tk.Button(
-            slack_url_frame, text="🧪 테스트", font=("맑은 고딕", 8),
+            slack_ch_frame, text="🧪 테스트", font=("맑은 고딕", 8, "bold"),
             bg='#3498db', fg='white', relief='flat', cursor='hand2',
             command=_test_slack
         )
-        slack_test_btn.pack(side='left')
+        slack_test_btn.pack(side='left', padx=3)
 
         # 🤖 Bot Token (xoxb-...) 입력 프레임
         slack_bot_frame = tk.Frame(notify_frame, bg='#f0f0f0')
@@ -1449,6 +1454,17 @@ class SettingsDialog:
         slack_app_entry = tk.Entry(slack_app_frame, textvariable=self.setting_vars['slack_app_token'], width=40, font=("맑은 고딕", 9))
         slack_app_entry.pack(side='left', padx=5)
         ToolTip(slack_app_entry, "Slack 콘솔 > Socket Mode > App-Level Token (xapp-...)을 입력하세요.")
+
+        # 🔗 Webhook URL (구형/폴백)
+        slack_url_frame = tk.Frame(notify_frame, bg='#f0f0f0')
+        slack_url_frame.pack(fill='x', padx=25, pady=2)
+
+        lbl_slack_url = tk.Label(slack_url_frame, text="🔗 Webhook (폴백용):", font=("맑은 고딕", 9), bg='#f0f0f0', fg='#7f8c8d')
+        lbl_slack_url.pack(side='left')
+
+        slack_url_entry = tk.Entry(slack_url_frame, textvariable=self.setting_vars['slack_webhook_url'], width=35, font=("맑은 고딕", 9))
+        slack_url_entry.pack(side='left', padx=5)
+        ToolTip(slack_url_entry, "채널 ID가 없을 때 사용할 이전 Webhook URL입니다. 채널 ID 사용 시 비워두셔도 됩니다.")
 
         # 5. 포인트 사용 설정 섹션
         baemin_frame = tk.LabelFrame(
@@ -1497,7 +1513,7 @@ class SettingsDialog:
             if key in ['active_start_ampm', 'active_start_h12', 'active_end_ampm', 'active_end_h12']:
                 continue
             val = var.get()
-            if key in ['baemin_phone', 'gemini_api_key', 'slack_webhook_url']:
+            if key in ['baemin_phone', 'gemini_api_key', 'slack_webhook_url', 'slack_channel', 'slack_bot_token', 'slack_app_token']:
                 new_settings[key] = str(val).strip()
 
             elif key in ['active_start_m', 'active_end_m']:

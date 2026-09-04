@@ -454,12 +454,8 @@ class TaskManager:
  
                 gui_logger = self.create_gui_logger(gui_callbacks)
                 
-                # 모듈에서 직접 개별 결과를 알림으로 보낼 수 있도록 콜백 추가
+                # GUI 콜백을 모듈에 전달 (main.py의 알림 콜백을 단일 진실 공급원으로 그대로 사용)
                 mod_callbacks = gui_callbacks.copy()
-                mod_callbacks['notify_kakao'] = lambda msg, cat="notify_survey": self.notifier.send_notification(msg, category=cat)
-                # QuizModule의 제품명·찍은 답 상세 결과를 Slack에도 전송한다.
-                mod_callbacks['notify_slack'] = lambda msg: self.notifier.send_notification(msg, category="notify_quiz")
-                mod_callbacks['notify_success'] = lambda msg: self.notifier.send_notification(msg, category="notify_survey")
                 
                 # 현재 모듈 상태 업데이트 (시스템 로그에만 기록)
                 self.state.current_module = module_name
@@ -1871,10 +1867,11 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                         json.dump(payload, f, ensure_ascii=False, indent=2)
 
                 def _post_quick_action_panel():
-                    """DVA Slack 연결 직후 Webhook 채널에 빠른 실행 버튼을 게시합니다."""
+                    """DVA Slack 연결 직후 Bot API 채널 또는 Webhook 채널에 빠른 실행 버튼을 게시합니다."""
+                    channel = (settings.get('slack_channel') or '').strip()
                     webhook_url = (settings.get('slack_webhook_url') or '').strip()
-                    if not webhook_url:
-                        self.logger.warning("Slack 빠른 실행 패널을 생략합니다: Webhook URL이 설정되지 않았습니다.")
+                    if not channel and not webhook_url:
+                        self.logger.warning("Slack 빠른 실행 패널을 생략합니다: 채널 ID 및 Webhook URL이 설정되지 않았습니다.")
                         return
                     # 두 계정이 같은 시점에 시작해도 Slack 패널은 한 번만 올립니다.
                     panel_lock_path = os.path.join(
@@ -1916,12 +1913,27 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                         ],
                     }
                     try:
-                        import requests
-                        response = requests.post(webhook_url, json=payload, timeout=10)
-                        if response.status_code == 200 and response.text == "ok":
-                            self.logger.info("DVA Slack 빠른 실행 버튼 패널 게시 완료")
-                        else:
-                            self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패 ({response.status_code}): {response.text}")
+                        # 1순위: Bot API 채널 전송
+                        if channel and web_client:
+                            res = web_client.chat_postMessage(
+                                channel=channel,
+                                text=payload["text"],
+                                blocks=payload["blocks"],
+                            )
+                            if res.get("ok"):
+                                self.logger.info(f"DVA Slack 빠른 실행 버튼 패널 게시 완료 (Bot API, 채널: {channel})")
+                                return
+                            else:
+                                self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패: {res.get('error')}")
+
+                        # 2순위: Webhook 전송
+                        if webhook_url:
+                            import requests
+                            response = requests.post(webhook_url, json=payload, timeout=10)
+                            if response.status_code == 200 and response.text == "ok":
+                                self.logger.info("DVA Slack 빠른 실행 버튼 패널 게시 완료 (Webhook)")
+                            else:
+                                self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패 ({response.status_code}): {response.text}")
                     except Exception as panel_err:
                         self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 오류: {panel_err}")
                 def _ack_quick_action(channel_id, task_desc):
@@ -2022,6 +2034,59 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                     product_keyword="네이버페이",
                                     quantity=1,
                                 )
+                            elif action_id.startswith("dva_quiz_ans_"):
+                                parts = action_id.replace("dva_quiz_ans_", "").split("_")
+                                if len(parts) >= 2:
+                                    target_q_num = parts[0]
+                                    chosen_ans = parts[1]
+                                else:
+                                    target_q_num = None
+                                    chosen_ans = parts[0]
+
+                                # 1. response_url을 통한 즉각적인 카드 갱신 (Clean Replace)
+                                response_url = payload.get("response_url")
+                                if response_url:
+                                    try:
+                                        import requests
+                                        target_str = f"문제 {target_q_num}번 " if target_q_num else ""
+                                        replace_payload = {
+                                            "replace_original": True,
+                                            "text": f"✅ *[세미나 퀴즈]* {target_str}정답 `{chosen_ans}` 선택 완료! (자동 풀이 진행)",
+                                            "blocks": [
+                                                {
+                                                    "type": "section",
+                                                    "text": {
+                                                        "type": "mrkdwn",
+                                                        "text": f"✅ *[세미나 퀴즈]* {target_str}정답 `{chosen_ans}`(으)로 선택되었습니다.\n자동 풀이를 계속 진행합니다."
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                        requests.post(response_url, json=replace_payload, timeout=5)
+                                    except Exception as rep_err:
+                                        self.logger.warning(f"Slack 퀴즈 버튼 응답 URL 갱신 실패: {rep_err}")
+
+                                # 2. IPC 디스패치 (타겟 문항 또는 단일 정답)
+                                if target_q_num:
+                                    _write_slack_button_dispatch(
+                                        "answer_target_registration",
+                                        f"{target_q_num}번 {chosen_ans}",
+                                        answer_val=chosen_ans,
+                                        target_question_num=int(target_q_num) if str(target_q_num).isdigit() else target_q_num,
+                                        product_keyword=chosen_ans,
+                                        answer_queue=[],
+                                        answer_batch=[],
+                                    )
+                                else:
+                                    _write_slack_button_dispatch(
+                                        "answer_registration",
+                                        f"정답 {chosen_ans}",
+                                        answer_val=chosen_ans,
+                                        product_keyword=chosen_ans,
+                                        answer_queue=[],
+                                        answer_batch=[],
+                                    )
+
                             # 업데이트 전에 표시된 예전 버튼도 계속 동작하도록 유지합니다.
                             elif action_id == "dva_btn_baemin":
                                 _ack_quick_action(channel_id, "🛵 배달의민족 1만 원권 1개 결제")
@@ -2078,6 +2143,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             quantity = 1
                             remaining_ans = []
                             answer_batch = []
+                            target_question_num = None
 
                             if any(k in text for k in ["출석", "출석체크", "출체"]):
                                 task_name = "attendance"
@@ -2091,6 +2157,9 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                             elif any(k in text for k in ["세미나", "강의", "심포지엄", "내일 세미나"]):
                                 task_name = "seminar"
                                 task_desc = "📢 세미나 목록"
+                            elif any(k in text for k in ["닥터빌 종료", "디바 종료", "프로그램 종료", "닥터빌 꺼줘", "디바 꺼줘"]) or text.strip() in ["종료", "꺼줘", "종료해줘"]:
+                                task_name = "exit"
+                                task_desc = "🛑 프로그램 종료"
                             elif any(k in text for k in ["설문", "설문조사"]):
                                 task_name = "survey"
                                 task_desc = "📋 세미나 설문"
@@ -2133,7 +2202,6 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
 
                                 # 공유 문제관리 창이 현재 Slack 답안을 기다리는 경우에만 답안을 해석합니다.
                                 if _is_shared_answer_input_active() and re.search(r'(?:답|정답)', clean_t, re.IGNORECASE):
-
                                     m_ans = re.search(r'(?:답|정답)\s*[:=]?\s*(.+)$', clean_t, re.IGNORECASE)
                                     if m_ans:
                                         ans_match = m_ans
@@ -2142,9 +2210,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 # 접두어 없이 보내는 답안은 숫자·O/X·구분자만으로 된 입력 전체일 때만 허용합니다.
                                 if _is_shared_answer_input_active() and not ans_match:
                                     # 시간·날짜 등 일반 문장을 답안으로 오인하지 않도록 전체 일치로 검사합니다.
-                                    m_ans = re.fullmatch(r'([0-9oOxX①-⑩\s,\-번]+)', clean_t)
-
-
+                                    m_ans = re.fullmatch(r'([0-9oOxX①-⑩\s,\-번:문제]+)', clean_t)
                                     if m_ans and m_ans.group(0).strip():
                                         ans_match = m_ans
                                         custom_tag = clean_t[:m_ans.start()].strip()
@@ -2155,56 +2221,67 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                     circled_map = {'①': '1', '②': '2', '③': '3', '④': '4', '⑤': '5', '⑥': '6', '⑦': '7', '⑧': '8', '⑨': '9', '⑩': '10'}
                                     for c, n in circled_map.items():
                                         raw_ans_str = raw_ans_str.replace(c, f" {n} ")
-                                    parts = [p.strip() for p in re.split(r'[\s,\-]+', raw_ans_str) if p.strip()]
-                                    parsed_answers = []
-                                    for p in parts:
-                                        m = re.match(r'^(\d+)번?$', p)
-                                        if m:
-                                            digit_val = m.group(1)
-                                            if len(parts) == 1 and 1 < len(digit_val) <= 3:
-                                                parsed_answers.extend(list(digit_val))
-                                            else:
-                                                parsed_answers.append(digit_val)
-                                        elif p.isdigit():
-                                            if len(parts) == 1 and 1 < len(p) <= 3:
-                                                parsed_answers.extend(list(p))
-                                            else:
-                                                parsed_answers.append(p)
-                                        else:
-                                            # 4OX, 3OX, OX, XO 등 숫자/O/X 혼합 연속 문자열 분할 처리
-                                            if len(parts) == 1 and re.match(r'^[1-9oOxX]{2,4}$', p):
-                                                for char in p:
-                                                    parsed_answers.append(char.upper())
-                                            elif p.upper() in ['O', 'X']:
-                                                parsed_answers.append(p.upper())
-                                            else:
-                                                parsed_answers.append(p)
-                                    if not parsed_answers:
-                                        parsed_answers = [raw_ans_str]
-                                        
-                                    if len(parsed_answers) == 3:
-                                        # 세미나 객관식 3문항 답안은 문항 순번(1·2·3)에 고정 매핑한다.
-                                        # 현재 어느 문항에서 대기 중인지와 무관하게 1번=첫째, 2번=둘째, 3번=셋째다.
-                                        task_name = "answer_batch_registration"
-                                        answer_batch = parsed_answers[:]
-                                        first_ans = answer_batch[0]
-                                        remaining_ans = []
-                                        product_keyword = first_ans
-                                        task_desc = f"📝 세미나 3문항 정답 일괄 등록 ({', '.join(answer_batch)})"
-                                    elif len(parsed_answers) == 1:
-                                        # 기존의 단일 답안 입력은 하위 호환성을 위해 유지한다.
-                                        task_name = "answer_registration"
-                                        first_ans = parsed_answers[0]
-                                        remaining_ans = []
-                                        product_keyword = first_ans
-                                        task_desc = f"📝 퀴즈 정답 등록 ('{first_ans}')"
+
+                                    # 문항 번호와 답안을 지정한 경우 (예: "1번 4", "문제2번: 1", "1: 4", "2-3" 등)
+                                    target_m = re.search(r'^(?:문제\s*)?([1-3])\s*번?\s*[:\-=\s]\s*([1-5oOxX])$', raw_ans_str.strip(), re.IGNORECASE)
+                                    if target_m:
+                                        target_question_num = int(target_m.group(1))
+                                        raw_choice = target_m.group(2)
+                                        target_ans = circled_map.get(raw_choice, raw_choice).strip().upper()
+                                        task_name = "answer_target_registration"
+                                        first_ans = target_ans
+                                        product_keyword = target_ans
+                                        task_desc = f"📝 세미나 문제 {target_question_num}번 정답 등록 ('{target_ans}')"
                                     else:
-                                        # 두 개 또는 네 개 이상의 답은 순번이 모호하므로 대기열에 넣지 않는다.
-                                        task_name = "answer_batch_invalid"
-                                        first_ans = ""
-                                        remaining_ans = []
-                                        product_keyword = ""
-                                        task_desc = "⚠️ 세미나 답안은 정확히 3개를 입력해 주세요"
+                                        parts = [p.strip() for p in re.split(r'[\s,\-]+', raw_ans_str) if p.strip()]
+                                        parsed_answers = []
+                                        for p in parts:
+                                            m = re.match(r'^(\d+)번?$', p)
+                                            if m:
+                                                digit_val = m.group(1)
+                                                if len(parts) == 1 and 1 < len(digit_val) <= 3:
+                                                    parsed_answers.extend(list(digit_val))
+                                                else:
+                                                    parsed_answers.append(digit_val)
+                                            elif p.isdigit():
+                                                if len(parts) == 1 and 1 < len(p) <= 3:
+                                                    parsed_answers.extend(list(p))
+                                                else:
+                                                    parsed_answers.append(p)
+                                            else:
+                                                # 4OX, 3OX, OX, XO 등 숫자/O/X 혼합 연속 문자열 분할 처리
+                                                if len(parts) == 1 and re.match(r'^[1-9oOxX]{2,4}$', p):
+                                                    for char in p:
+                                                        parsed_answers.append(char.upper())
+                                                elif p.upper() in ['O', 'X']:
+                                                    parsed_answers.append(p.upper())
+                                                else:
+                                                    parsed_answers.append(p)
+                                        if not parsed_answers:
+                                            parsed_answers = [raw_ans_str]
+
+                                        if len(parsed_answers) == 3:
+                                            # 세미나 객관식 3문항 답안은 문항 순번(1·2·3)에 고정 매핑한다.
+                                            task_name = "answer_batch_registration"
+                                            answer_batch = parsed_answers[:]
+                                            first_ans = answer_batch[0]
+                                            remaining_ans = []
+                                            product_keyword = first_ans
+                                            task_desc = f"📝 세미나 3문항 정답 일괄 등록 ({', '.join(answer_batch)})"
+                                        elif len(parsed_answers) == 1:
+                                            # 기존의 단일 답안 입력은 하위 호환성을 위해 유지한다.
+                                            task_name = "answer_registration"
+                                            first_ans = parsed_answers[0]
+                                            remaining_ans = []
+                                            product_keyword = first_ans
+                                            task_desc = f"📝 퀴즈 정답 등록 ('{first_ans}')"
+                                        else:
+                                            # 두 개 또는 네 개 이상의 답은 순번이 모호하므로 대기열에 넣지 않는다.
+                                            task_name = "answer_batch_invalid"
+                                            first_ans = ""
+                                            remaining_ans = []
+                                            product_keyword = ""
+                                            task_desc = "⚠️ 세미나 답안은 정확히 3개를 입력해 주세요"
 
                             if not task_name and (event_type == "app_mention" or event.get("channel_type") == "im"):
                                 # 공개 채널의 일반 대화는 해석하지 않고, 멘션 또는 DM에서만 자연어 의도 파싱을 시도합니다.
@@ -2222,8 +2299,11 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
 
                             # 즉시 슬랙 채널로 수신 확인 피드백 메시지 발송
                             try:
+                                base_dir = os.path.dirname(os.path.abspath(__file__))
                                 should_send_ack = True
-                                if task_name == "answer_batch_registration":
+                                if task_name == "answer_target_registration":
+                                    ack_text = f"📝 *[세미나 {target_question_num}번 정답 수신]* 정답 `{product_keyword}` 등록 요청을 반영합니다."
+                                elif task_name == "answer_batch_registration":
                                     ack_text = (
                                         f"📝 *[세미나 3문항 답안 수신]* 1번 `{answer_batch[0]}`, "
                                         f"2번 `{answer_batch[1]}`, 3번 `{answer_batch[2]}`\n"
@@ -2232,24 +2312,31 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                 elif task_name == "answer_batch_invalid":
                                     ack_text = "⚠️ 세미나 객관식 답안은 `답 2 3 4`처럼 정확히 3개를 한 번에 입력해 주세요."
                                 elif task_name == "answer_registration":
-
                                     from modules.survey_module import SurveyModule
-                                    
-                                    # ✅ 실제 정답 등록/대기열 반영은 main.py의 IPC 폴러에서 단일 수행 (이중 등록 방지)
+
+                                    # ✅ 실제 정답 등록은 main.py의 IPC 폴러에서 단일 수행 (이중 등록 방지)
                                     #    여기서는 수신 확인 응답 메시지만 구성합니다.
                                     pending = getattr(SurveyModule, 'current_pending_quiz', None)
+                                    if not pending:
+                                        try:
+                                            pf_path = os.path.join(base_dir, "data", "current_pending_quiz.json")
+                                            if os.path.exists(pf_path):
+                                                with open(pf_path, "r", encoding="utf-8") as pf:
+                                                    pending = json.load(pf)
+                                        except Exception:
+                                            pending = None
+
                                     if pending and pending.get('question'):
                                         display_q = pending.get('display_question', '')
                                         ack_text = NotificationTemplates.quiz_answer_ack(display_q, product_keyword, custom_tag, remaining_ans)
                                     else:
-                                        # 대기 중인 퀴즈가 없는 계정인 경우, 다중 계정 메시지 중복 소음을 막기 위해 공용 수신 메시지 전송 생략
-                                        should_send_ack = False
+                                        ack_text = f"📝 *[퀴즈 정답 수신]* 정답 `{product_keyword}` 등록 요청을 반영합니다."
                                 elif task_name == "seminar":
                                     # 세미나 조회의 경우 결과 알림 메시지가 곧바로 발송되므로 수신 확인 피드백 중복 발송 생략
                                     should_send_ack = False
                                 else:
                                     ack_text = NotificationTemplates.remote_ack(task_desc)
-                                    
+
                                 if should_send_ack:
                                     web_client.chat_postMessage(channel=channel_id, text=ack_text)
                             except Exception as msg_err:
@@ -2269,8 +2356,8 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                                     "answer_val": product_keyword,
                                     "answer_queue": remaining_ans,
                                     "answer_batch": answer_batch,
+                                    "target_question_num": target_question_num,
                                     "raw_text": text,
-
                                     "timestamp": time.time()
                                 }
                                 with open(dispatch_file, "w", encoding="utf-8") as f:
