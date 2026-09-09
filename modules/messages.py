@@ -92,9 +92,9 @@ class NotificationTemplates:
                 day = s.get('day', '')
                 tm = s.get('time', '')
                 t = s.get('title', '')
-                st = s.get('status', '')
+                survey_mark = "🟡 " if s.get('has_survey') else ""
                 if t:
-                    lines.append(f"• *{d}({day}) {tm}* | {t} (`{st}`)")
+                    lines.append(f"• *{d}({day}) {tm}*\n  └ {survey_mark}{t}")
         else:
             lines.append(f"• {date_label} 예정된 세미나가 없습니다.")
         return "\n".join(lines)

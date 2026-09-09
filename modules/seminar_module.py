@@ -161,6 +161,10 @@ class SeminarModule(BaseModule):
                 if config.get('process') == 'clean_text': val = val.replace('\n', ' ').replace('  ', ' ')
                 data[name] = val
             except: data[name] = ''
+        try:
+            data['has_survey'] = len(item.find_elements(By.CSS_SELECTOR, '.ic_survey')) > 0
+        except Exception:
+            data['has_survey'] = False
         return data
 
     def _generate_js_fields_script(self):
@@ -172,6 +176,7 @@ class SeminarModule(BaseModule):
                 js += f"const e{name} = parentContainer.querySelector('{config['selector']}'); data['{name}'] = e{name} ? e{name}.textContent.trim() : '';"
             else:
                 js += f"const e{name} = item.querySelector('{config['selector']}'); data['{name}'] = e{name} ? e{name}.textContent.trim() : '';"
+        js += "data['has_survey'] = !!item.querySelector('.ic_survey');"
         js += "return data; }"
         return js
 

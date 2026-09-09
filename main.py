@@ -22,7 +22,7 @@ from ui.dialogs.point_use_dialog import (
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.seminar_dialog import show_seminar_info_dialog
 
-VERSION = "v3.9.21"
+VERSION = "v3.9.23"
 
 class DoctorBillApp:
     def __init__(self, root):
@@ -819,7 +819,7 @@ class DoctorBillApp:
         today_seminars = [s for s in seminars if s.get('date', '') == today_str]
         
         if not today_seminars:
-            self.ui.seminar_panel.insert_item(("", "", "", "오늘 예정된 세미나가 없습니다", "", "", ""))
+            self.ui.seminar_panel.insert_item(("", "", "", "", "오늘 예정된 세미나가 없습니다", "", "", ""))
             return
             
         current_date = None
@@ -827,11 +827,12 @@ class DoctorBillApp:
             if current_date != s.get('date', ''):
                 current_date = s.get('date', '')
                 if current_date:
-                    self.ui.seminar_panel.insert_item((f"📅 {current_date} {s.get('day','')}", "", "", "", "", "", ""), tags=('date_separator',))
+                    self.ui.seminar_panel.insert_item((f"📅 {current_date} {s.get('day','')}", "", "", "", "", "", "", ""), tags=('date_separator',))
             from modules.utils import get_status_tag
             status_tag = get_status_tag(s.get('status',''))
+            survey_mark = "🟡" if s.get('has_survey') else ""
             self.ui.seminar_panel.insert_item(
-                (s.get('date',''), s.get('day',''), s.get('time',''), s.get('title',''), s.get('lecturer',''), s.get('person',''), s.get('status','')),
+                (s.get('date',''), s.get('day',''), s.get('time',''), survey_mark, s.get('title',''), s.get('lecturer',''), s.get('person',''), s.get('status','')),
                 tags=(s.get('detail_link',''), status_tag)
             )
 

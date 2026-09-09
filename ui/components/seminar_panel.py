@@ -44,7 +44,7 @@ class SeminarPanel(tk.Frame):
         self.seminar_info_frame.pack(fill='both', expand=True, padx=10)
         
         # 트리뷰 생성
-        columns = ('날짜', '요일', '시간', '강의명', '강의자', '신청인원', '신청상태')
+        columns = ('날짜', '요일', '시간', '심화설문', '강의명', '강의자', '신청인원', '신청상태')
         self.seminar_tree = ttk.Treeview(self.seminar_info_frame, columns=columns, show='headings', height=8)
         
         # 컬럼 설정
@@ -55,8 +55,9 @@ class SeminarPanel(tk.Frame):
         self.seminar_tree.column('날짜', width=70, anchor='center')
         self.seminar_tree.column('요일', width=50, anchor='center')
         self.seminar_tree.column('시간', width=80, anchor='center')
-        self.seminar_tree.column('강의명', width=200, anchor='w')
-        self.seminar_tree.column('강의자', width=120, anchor='w')
+        self.seminar_tree.column('심화설문', width=65, anchor='center')
+        self.seminar_tree.column('강의명', width=175, anchor='w')
+        self.seminar_tree.column('강의자', width=105, anchor='w')
         self.seminar_tree.column('신청인원', width=70, anchor='center')
         self.seminar_tree.column('신청상태', width=80, anchor='center')
         
@@ -69,7 +70,7 @@ class SeminarPanel(tk.Frame):
         seminar_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10)
         
         # 초기 메시지 표시
-        self.seminar_tree.insert('', 'end', values=("", "", "", "자동 로그인 후 세미나 정보가 자동으로 수집됩니다", "", "", ""))
+        self.seminar_tree.insert('', 'end', values=("", "", "", "", "자동 로그인 후 세미나 정보가 자동으로 수집됩니다", "", "", ""))
         
         # 상태별 색상 설정
         self.seminar_tree.tag_configure('신청가능', background='#d5f4e6', foreground='#2e7d32')

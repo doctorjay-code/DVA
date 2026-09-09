@@ -78,7 +78,7 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
     main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
     
     # 트리뷰 생성
-    columns = ('선택', '날짜', '요일', '시간', '강의명', '강의자', '신청인원', '신청상태')
+    columns = ('선택', '날짜', '요일', '시간', '심화설문', '강의명', '강의자', '신청인원', '신청상태')
     tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=20)
     
     # 컬럼 설정
@@ -86,6 +86,7 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
     tree.heading('날짜', text='날짜')
     tree.heading('요일', text='요일')
     tree.heading('시간', text='시간')
+    tree.heading('심화설문', text='심화설문')
     tree.heading('강의명', text='강의명')
     tree.heading('강의자', text='강의자')
     tree.heading('신청인원', text='신청인원')
@@ -94,12 +95,13 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
     # 컬럼 너비 설정
     tree.column('선택', width=50, anchor='center')
     tree.column('날짜', width=80, anchor='center')
-    tree.column('요일', width=80, anchor='center')
+    tree.column('요일', width=60, anchor='center')
     tree.column('시간', width=100, anchor='center')
-    tree.column('강의명', width=300, anchor='w')
-    tree.column('강의자', width=200, anchor='w')
-    tree.column('신청인원', width=100, anchor='center')
-    tree.column('신청상태', width=100, anchor='center')
+    tree.column('심화설문', width=70, anchor='center')
+    tree.column('강의명', width=260, anchor='w')
+    tree.column('강의자', width=160, anchor='w')
+    tree.column('신청인원', width=80, anchor='center')
+    tree.column('신청상태', width=80, anchor='center')
     
     # 스크롤바 추가
     scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=tree.yview)
@@ -114,10 +116,10 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
             tags = tree.item(item, "tags")
             if len(values) > 0 and values[0] == "☑" and 'date_separator' not in tags:
                 seminar_info = {
-                    'title': values[4],
+                    'title': values[5],
                     'date': values[1],
                     'time': values[3],
-                    'status': values[7],
+                    'status': values[8],
                     'detail_link': tags[0] if tags else '',
                     'status_tag': None
                 }
@@ -136,7 +138,7 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
         for s in seminars:
             if current_date != s['date']:
                 current_date = s['date']
-                tree.insert('', 'end', values=("", f"📅 {s['date']} {s['day']}", "", "", "", "", "", ""), tags=('date_separator',))
+                tree.insert('', 'end', values=("", f"📅 {s['date']} {s['day']}", "", "", "", "", "", "", ""), tags=('date_separator',))
             
             # 상태 태그 결정
             status = s['status']
@@ -147,8 +149,9 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
             elif '입장하기' in status: tag = '입장하기'
             elif '대기중' in status: tag = '대기중'
             
+            survey_mark = "🟡" if s.get('has_survey') else ""
             tree.insert('', 'end', values=(
-                "☐", s['date'], s['day'], s['time'], s['title'], s['lecturer'], s['person'], s['status']
+                "☐", s['date'], s['day'], s['time'], survey_mark, s['title'], s['lecturer'], s['person'], s['status']
             ), tags=(s['detail_link'], tag))
 
     # 버튼 명령 설정
@@ -164,7 +167,7 @@ def show_seminar_info_dialog(parent, initial_seminars, callbacks):
             tags = tree.item(item, "tags")
             if 'date_separator' not in tags:
                 if action_type == "select_available":
-                    if len(values) > 7 and '신청가능' in values[7]:
+                    if len(values) > 8 and '신청가능' in values[8]:
                         new_values = list(values)
                         new_values[0] = "☑"
                         tree.item(item, values=new_values)
