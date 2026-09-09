@@ -391,6 +391,14 @@ class SurveyModule(BaseModule):
             min_limit = char_limits.get("min")
             max_limit = char_limits.get("max")
             
+        # 질문 텍스트(question_text)에서도 글자 수 제한 재확인 (이중 안전장치)
+        if not min_limit or not max_limit:
+            text_limits = self._get_char_limits(question_text)
+            if not min_limit and text_limits.get("min"):
+                min_limit = text_limits["min"]
+            if not max_limit and text_limits.get("max"):
+                max_limit = text_limits["max"]
+            
         # 포맷팅 변수 딕셔너리 준비
         variables = {
             "min_limit": min_limit or 0,
@@ -529,18 +537,27 @@ class SurveyModule(BaseModule):
                     failed_models.add(model_name)
                     continue
                     
-                answer = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                raw_answer = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                
+                # [텍스트 정제 함수] 양 끝 및 본문 내부의 따옴표, 괄호 등 제거하고 다중 공백/줄바꿈을 단일 공백으로 치환
+                def _clean_text(txt):
+                    txt = re.sub(r'["\'\(\)\[\]\{\}“”‘’]', '', txt)
+                    return re.sub(r'\s+', ' ', txt).strip()
+                    
+                answer = _clean_text(raw_answer)
                 
                 # [이중 안전장치] 최소 글자 수 제한이 있고 길이가 부족한 경우 재요청
-                if min_limit and len(answer) < min_limit:
-                    self.log_warning(f"⚠️ AI 답변의 길이({len(answer)}자)가 최소 요구 글자 수({min_limit}자)보다 작습니다. 보완 요청 중...")
+                # 공백 제외 체감 길이도 감안하여, 최소 요구 글자 수의 1.15배 미만(예: 100자 제한 시 115자 미만)이면 보완 요청하여 풍부한 답변 유도
+                min_target = max(min_limit, int(min_limit * 1.15)) if min_limit else 0
+                if min_limit and len(answer) < min_target:
+                    self.log_warning(f"⚠️ AI 답변의 길이({len(answer)}자)가 최소 요구 및 권장 글자 수({min_target}자)보다 작습니다. 보완 요청 중...")
                     
                     retry_prompt = (
                         f"이전 답변: '{answer}'\n\n"
-                        f"위 답변은 공백 포함 {len(answer)}자로, 최소 요구치인 {min_limit}자에 미달합니다.\n"
+                        f"위 답변은 공백 포함 {len(answer)}자로, 최소 요구치인 {min_limit}자에 미달하거나 너무 짧습니다.\n"
                         "반드시 다음 조건들을 철저히 만족해 주세요:\n"
                         "1. 큰따옴표, 작은따옴표, 대괄호, 소괄호 등의 기호를 절대로 쓰지 마세요.\n"
-                        f"2. 반드시 공백 포함 {min_limit}자 이상 {min_limit + 100}자 이하가 되도록 관련 세부 설명, 임상적 혜택 혹은 사례를 덧붙여 훨씬 길고 풍부한 단일 문단으로 완성해 주세요. 메타 설명 없이 완성 본문만 출력해 주세요."
+                        f"2. 반드시 공백 포함 {min_limit + 30}자 이상 {min_limit + 150}자 이하가 되도록 관련 세부 임상적 근거, 치료 혜택 혹은 실제 처방 경험 사례를 덧붙여 훨씬 길고 풍부한 단일 문단으로 완성해 주세요. 메타 설명 없이 완성 본문만 출력해 주세요."
                     )
                     
                     payload = {
@@ -555,19 +572,17 @@ class SurveyModule(BaseModule):
                     response = requests.post(url, headers=headers, json=payload, timeout=10)
                     if response.status_code == 200:
                         result = response.json()
-                        retry_answer = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                        retry_raw = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                        retry_answer = _clean_text(retry_raw)
                         if len(retry_answer) >= min_limit:
                             answer = retry_answer
                             self.log_success(f"재요청을 통해 글자 수 충족 완료 ({len(answer)}자)")
                         else:
                             merged = answer + " 추가적으로, 실제 처방 사례에 비추어 볼 때 환자의 치료 만족도를 높이기 위한 면밀한 복약 지도와 장기적 추적 관찰이 중요하며, 관련 지표의 동반 개선을 통해 임상 혜택을 극대화할 수 있을 것입니다."
+                            merged = _clean_text(merged)
                             if len(merged) >= min_limit:
                                 answer = merged
-                                self.log_success("템플릿 문장 합치기를 통해 글자 수 강제 충족 완료")
-                
-                # [최종 강제 포맷 제거 후처리] 양 끝 및 본문 내부의 따옴표, 괄호 등 제거하고 줄바꿈을 공백으로 단일문단화
-                answer = re.sub(r'["\'\(\)\[\]\{\}“”‘’]', '', answer)
-                answer = re.sub(r'\s+', ' ', answer).strip() # 다중 공백 및 줄바꿈을 단일 공백으로 치환해 한 문단으로 강제
+                                self.log_success(f"템플릿 문장 합치기를 통해 글자 수 강제 충족 완료 ({len(answer)}자)")
                 
                 # 성공 시 캐시 설정
                 SurveyModule._cached_gemini_model = model_name
@@ -2317,19 +2332,27 @@ class SurveyModule(BaseModule):
         """질문 항목 내에 최소 및 최대 글자 수 제한이 있는지 확인하여 반환합니다."""
         limits = {"min": None, "max": None}
         try:
-            text = question_elem.text
+            text = question_elem.text if hasattr(question_elem, 'text') else str(question_elem)
             
-            # 최소 글자 수 추출
-            if "최소" in text and "자" in text:
-                match_min = re.search(r'최소\s*(\d+)\s*자', text)
+            # 1. 범위 형태 우선 추출 (예: '100~200자', '100자 ~ 200자', '100-200자')
+            range_match = re.search(r'(\d+)\s*(?:자|글자)?\s*[~～\-]\s*(\d+)\s*(?:자|글자)', text)
+            if range_match:
+                limits["min"] = int(range_match.group(1))
+                limits["max"] = int(range_match.group(2))
+
+            # 2. 최소 글자 수 추출
+            # 예: '최소 100자', '100자 이상', '100자이상', '(100자 이상)', '최소 50글자', '50글자 이상' 등
+            if not limits["min"]:
+                match_min = re.search(r'(?:최소\s*(\d+)\s*(?:자|글자)|(\d+)\s*(?:자|글자)\s*이상)', text)
                 if match_min:
-                    limits["min"] = int(match_min.group(1))
+                    limits["min"] = int(match_min.group(1) or match_min.group(2))
                     
-            # 최대 글자 수 추출
-            if "최대" in text and "자" in text:
-                match_max = re.search(r'최대\s*(\d+)\s*자', text)
+            # 3. 최대 글자 수 추출
+            # 예: '최대 500자', '500자 이하', '500자이하', '500자 미만', '최대 300글자' 등
+            if not limits["max"]:
+                match_max = re.search(r'(?:최대\s*(\d+)\s*(?:자|글자)|(\d+)\s*(?:자|글자)\s*(?:이하|미만))', text)
                 if match_max:
-                    limits["max"] = int(match_max.group(1))
+                    limits["max"] = int(match_max.group(1) or match_max.group(2))
         except Exception as e:
             self.log_warning(f"글자수 제한 판별 중 오류: {str(e)}")
             

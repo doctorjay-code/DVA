@@ -225,6 +225,7 @@ class TaskManager:
         self.notifier = NotificationManager() # 카카오 알림 매니저 초기화
         self._startup_status_summary_complete = False
         self._slack_quick_action_panel_poster = None
+        self._panel_relocate_timer = None
     
     def _startup_status_sync_path(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -323,6 +324,245 @@ class TaskManager:
                     os.remove(lock_path)
             except Exception:
                 pass
+
+    def _active_panel_file_path(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_dir, "data", "dva_active_panel.json")
+
+    def _load_active_panel_ts(self):
+        p = self._active_panel_file_path()
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
+
+    def _save_active_panel_ts(self, data):
+        p = self._active_panel_file_path()
+        try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _get_settings(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        account_name = os.environ.get('ACCOUNT_NAME', '').strip()
+        if account_name:
+            settings_path = os.path.join(base_dir, "data", f"settings_{account_name}.json")
+        else:
+            settings_path = os.path.join(base_dir, "data", "settings.json")
+        if os.path.exists(settings_path):
+            try:
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def cleanup_previous_quick_panel(self, channel_id: str = None, web_client=None):
+        """채널 내 이전 DVA 통합 리모컨 메시지를 슬랙에서 자동 삭제하여 단 1개의 리모컨만 유지"""
+        if not channel_id:
+            settings = self._get_settings()
+            channel_id = (settings.get('slack_channel') or '').strip()
+        if not channel_id:
+            return
+        if not web_client:
+            settings = self._get_settings()
+            token = settings.get('slack_bot_token') or os.environ.get("SLACK_BOT_TOKEN", "")
+            if token:
+                try:
+                    from slack_sdk.web import WebClient
+                    web_client = WebClient(token=token)
+                except Exception:
+                    web_client = None
+        if not web_client:
+            return
+
+        remotes = self._load_active_panel_ts()
+        old_ts = remotes.get(channel_id)
+        if old_ts:
+            try:
+                web_client.chat_delete(channel=channel_id, ts=old_ts)
+                self.logger.info(f"-> [DVA 단일 리모컨 청소] 이전 리모컨(ts={old_ts}) 자동 삭제 완료")
+            except Exception as e:
+                self.logger.debug(f"이전 DVA 리모컨 삭제 건너뜀: {e}")
+            finally:
+                remotes.pop(channel_id, None)
+                self._save_active_panel_ts(remotes)
+
+    def post_quick_action_panel(self, web_client=None):
+        """DVA 통합 빠른 실행 리모컨 패널을 슬랙 최하단에 게시 (기존 패널은 자동 삭제)"""
+        settings = self._get_settings()
+        channel = (settings.get('slack_channel') or '').strip()
+        webhook_url = (settings.get('slack_webhook_url') or '').strip()
+        if not channel and not webhook_url:
+            self.logger.warning("Slack 빠른 실행 패널을 생략합니다: 채널 ID 및 Webhook URL이 설정되지 않았습니다.")
+            return
+
+        if not web_client and channel:
+            token = settings.get('slack_bot_token') or os.environ.get("SLACK_BOT_TOKEN", "")
+            if token:
+                try:
+                    from slack_sdk.web import WebClient
+                    web_client = WebClient(token=token)
+                except Exception as e:
+                    self.logger.warning(f"Slack WebClient 초기화 실패: {e}")
+                    web_client = None
+
+        panel_header = "🔔 *[DVA | 통합]* 알림"
+        panel_body = "📋 원하는 작업을 선택하세요."
+        payload = {
+            "text": f"{panel_header}\n{panel_body}",
+            "blocks": [
+                {"type": "section", "text": {"type": "mrkdwn", "text": f"{panel_header}\n{panel_body}"}},
+                {"type": "actions", "block_id": "dva_quick_actions", "elements": [
+                    {"type": "button", "text": {"type": "plain_text", "text": "루틴"}, "action_id": "dva_btn_routine", "value": "routine"},
+                    {"type": "button", "text": {"type": "plain_text", "text": "오늘의 세미나"}, "action_id": "dva_btn_today_seminar", "value": "today_seminar"},
+                    {"type": "button", "text": {"type": "plain_text", "text": "쿠폰"}, "action_id": "dva_btn_coupon", "value": "coupon"},
+                ]},
+            ],
+        }
+
+        # 1순위: Bot API 채널 전송
+        if channel and web_client:
+            try:
+                # 먼저 이전 리모컨 메시지를 깔끔하게 삭제
+                self.cleanup_previous_quick_panel(channel, web_client)
+
+                res = web_client.chat_postMessage(
+                    channel=channel,
+                    text=payload["text"],
+                    blocks=payload["blocks"],
+                )
+                if res.get("ok"):
+                    ts_val = res.get("ts")
+                    if ts_val:
+                        remotes = self._load_active_panel_ts()
+                        remotes[channel] = ts_val
+                        self._save_active_panel_ts(remotes)
+                    self.logger.info(f"DVA Slack 빠른 실행 버튼 패널 게시 완료 (Bot API, 채널: {channel}, ts: {ts_val})")
+                    return
+                else:
+                    self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패: {res.get('error')}")
+            except Exception as e:
+                self.logger.warning(f"DVA Slack 패널 전송 예외: {e}")
+
+        # 2순위: Webhook 전송 (채널/토큰 없을 때 폴백)
+        if webhook_url:
+            try:
+                import requests
+                response = requests.post(webhook_url, json=payload, timeout=10)
+                if response.status_code == 200 and response.text == "ok":
+                    self.logger.info("DVA Slack 빠른 실행 버튼 패널 게시 완료 (Webhook)")
+                else:
+                    self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패 ({response.status_code}): {response.text}")
+            except Exception as panel_err:
+                self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 Webhook 게시 오류: {panel_err}")
+
+    def schedule_quick_panel_relocation(self, delay=3.0):
+        """상태 요약 알림 직후 기존 패널을 삭제하고 최하단에 새 리모컨을 재배치하도록 예약 (디바운스)"""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        req_file = os.path.join(base_dir, "data", "slack_panel_request.json")
+        now = time.time()
+        try:
+            os.makedirs(os.path.dirname(req_file), exist_ok=True)
+            data = {}
+            if os.path.exists(req_file):
+                try:
+                    with open(req_file, "r", encoding="utf-8") as rf:
+                        data = json.load(rf)
+                except Exception:
+                    data = {}
+            data["requested_at"] = now
+            data["requester"] = os.environ.get("ACCOUNT_NAME", "").strip()
+            with open(req_file, "w", encoding="utf-8") as rf:
+                json.dump(data, rf, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.logger.debug(f"패널 재배치 요청 파일 기록 오류: {e}")
+
+        # 기존 타이머가 있으면 취소 후 새 타이머 시작
+        if hasattr(self, '_panel_relocate_timer') and self._panel_relocate_timer:
+            try:
+                self._panel_relocate_timer.cancel()
+            except Exception:
+                pass
+
+        import threading
+        timer = threading.Timer(delay, self._execute_debounced_panel_relocation, args=[req_file, max(0.5, delay - 0.5)])
+        timer.daemon = True
+        self._panel_relocate_timer = timer
+        timer.start()
+
+    def _execute_debounced_panel_relocation(self, req_file, min_age=2.5):
+        """디바운스 타이머 만료 시 락을 획득하여 단 1회 패널을 최하단에 재배치"""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        lock_path = os.path.join(base_dir, "data", "slack_quick_panel.lock")
+        now = time.time()
+
+        # 1. 최신 요청 시각 검사
+        if os.path.exists(req_file):
+            try:
+                with open(req_file, "r", encoding="utf-8") as rf:
+                    req_data = json.load(rf)
+                requested_at = float(req_data.get("requested_at", 0))
+                handled_at = float(req_data.get("handled_at", 0))
+
+                # 이미 처리된 요청이면 종료
+                if handled_at >= requested_at:
+                    return
+
+                # 요청된 지 아직 충분한 시간이 지나지 않았으면 (다른 계정의 최신 요청이 들어온 경우) 종료
+                if now - requested_at < min_age:
+                    return
+            except Exception:
+                pass
+
+        # 2. 파일 락 획득 시도 (동시 실행 방지)
+        lock_fd = None
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            # 혹시 락 파일이 10초 이상 방치된 stale 락인지 확인
+            try:
+                if os.path.exists(lock_path) and (time.time() - os.path.getmtime(lock_path) > 10):
+                    os.remove(lock_path)
+                    lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                else:
+                    return
+            except Exception:
+                return
+        except Exception:
+            return
+
+        try:
+            # 락 획득 성공: 패널 게시 실행!
+            self.post_quick_action_panel()
+
+            # handled_at 업데이트
+            if os.path.exists(req_file):
+                try:
+                    with open(req_file, "r", encoding="utf-8") as rf:
+                        req_data = json.load(rf)
+                    req_data["handled_at"] = time.time()
+                    with open(req_file, "w", encoding="utf-8") as rf:
+                        json.dump(req_data, rf, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+        finally:
+            if lock_fd is not None:
+                try:
+                    os.close(lock_fd)
+                except Exception:
+                    pass
+                try:
+                    if os.path.exists(lock_path):
+                        os.remove(lock_path)
+                except Exception:
+                    pass
 
     def initialize_web_automation(self, gui_callbacks=None):
         """웹드라이버가 없으면 초기화"""
@@ -591,14 +831,16 @@ class TaskManager:
                         points_mod.execute()
                     except Exception as pe:
                         self.logger.error(f"후속 포인트 체크 중 오류: {str(pe)}")
+                    finally:
+                        # 모듈 완료 후 포인트 상태 요약이 출력되었으므로 최하단 리모컨 재배치 예약 (3초 디바운스)
+                        self.schedule_quick_panel_relocation(delay=3.0)
 
                 # 자동 로그인 후 포인트 상태 요약까지 끝난 다음 Slack 버튼을 올립니다.
                 if module_name == "로그인":
                     self._startup_status_summary_complete = True
                     all_accounts_ready = self._mark_startup_status_summary_complete()
-                    panel_poster = self._slack_quick_action_panel_poster
-                    if all_accounts_ready and callable(panel_poster):
-                        panel_poster()
+                    if all_accounts_ready:
+                        self.schedule_quick_panel_relocation(delay=1.5)
 
                         
                 # [추가] '세미나 풀이' 모듈이 최종 완료된 후에는 UI 세미나 목록과 상태 동기화를 위해 즉시 세미나 목록 새로고침 수행
@@ -1868,74 +2110,8 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
 
                 def _post_quick_action_panel():
                     """DVA Slack 연결 직후 Bot API 채널 또는 Webhook 채널에 빠른 실행 버튼을 게시합니다."""
-                    channel = (settings.get('slack_channel') or '').strip()
-                    webhook_url = (settings.get('slack_webhook_url') or '').strip()
-                    if not channel and not webhook_url:
-                        self.logger.warning("Slack 빠른 실행 패널을 생략합니다: 채널 ID 및 Webhook URL이 설정되지 않았습니다.")
-                        return
-                    # 두 계정이 같은 시점에 시작해도 Slack 패널은 한 번만 올립니다.
-                    panel_lock_path = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        "data",
-                        "slack_quick_panel.lock",
-                    )
-                    panel_window_seconds = 120
-                    now = time.time()
-                    try:
-                        if os.path.exists(panel_lock_path):
-                            lock_age = now - os.path.getmtime(panel_lock_path)
-                            if lock_age < panel_window_seconds:
-                                self.logger.info("다른 DVA 계정이 통합 Slack 버튼 패널을 이미 게시했습니다.")
-                                return
-                            os.remove(panel_lock_path)
+                    self.post_quick_action_panel(web_client=web_client)
 
-                        lock_fd = os.open(panel_lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                        with os.fdopen(lock_fd, "w", encoding="utf-8") as lock_file:
-                            json.dump({"created_at": now}, lock_file)
-                    except FileExistsError:
-                        self.logger.info("다른 DVA 계정이 통합 Slack 버튼 패널을 게시하는 중입니다.")
-                        return
-                    except Exception as lock_err:
-                        self.logger.warning(f"Slack 통합 버튼 패널 잠금 확인 오류: {lock_err}")
-                        return
-
-                    panel_header = "🔔 *[DVA | 통합]* 알림"
-                    panel_body = "📋 원하는 작업을 선택하세요."
-                    payload = {
-                        "text": f"{panel_header}\n{panel_body}",
-                        "blocks": [
-                            {"type": "section", "text": {"type": "mrkdwn", "text": f"{panel_header}\n{panel_body}"}},
-                            {"type": "actions", "block_id": "dva_quick_actions", "elements": [
-                                {"type": "button", "text": {"type": "plain_text", "text": "루틴"}, "action_id": "dva_btn_routine", "value": "routine"},
-                                {"type": "button", "text": {"type": "plain_text", "text": "오늘의 세미나"}, "action_id": "dva_btn_today_seminar", "value": "today_seminar"},
-                                {"type": "button", "text": {"type": "plain_text", "text": "쿠폰"}, "action_id": "dva_btn_coupon", "value": "coupon"},
-                            ]},
-                        ],
-                    }
-                    try:
-                        # 1순위: Bot API 채널 전송
-                        if channel and web_client:
-                            res = web_client.chat_postMessage(
-                                channel=channel,
-                                text=payload["text"],
-                                blocks=payload["blocks"],
-                            )
-                            if res.get("ok"):
-                                self.logger.info(f"DVA Slack 빠른 실행 버튼 패널 게시 완료 (Bot API, 채널: {channel})")
-                                return
-                            else:
-                                self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패: {res.get('error')}")
-
-                        # 2순위: Webhook 전송
-                        if webhook_url:
-                            import requests
-                            response = requests.post(webhook_url, json=payload, timeout=10)
-                            if response.status_code == 200 and response.text == "ok":
-                                self.logger.info("DVA Slack 빠른 실행 버튼 패널 게시 완료 (Webhook)")
-                            else:
-                                self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 실패 ({response.status_code}): {response.text}")
-                    except Exception as panel_err:
-                        self.logger.warning(f"DVA Slack 빠른 실행 버튼 패널 게시 오류: {panel_err}")
                 def _ack_quick_action(channel_id, task_desc):
                     """빠른 실행 버튼도 일반 Slack 명령과 같은 수신 확인을 보냅니다."""
                     try:
@@ -1959,11 +2135,18 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                         ]},
                     ]
                     try:
-                        web_client.chat_postMessage(
+                        self.cleanup_previous_quick_panel(channel_id, web_client)
+                        res = web_client.chat_postMessage(
                             channel=channel_id,
                             text=f"{coupon_header}\n{coupon_body}",
                             blocks=coupon_blocks,
                         )
+                        if res and res.get("ok"):
+                            ts_val = res.get("ts")
+                            if ts_val:
+                                remotes = self._load_active_panel_ts()
+                                remotes[channel_id] = ts_val
+                                self._save_active_panel_ts(remotes)
                     except Exception as coupon_panel_err:
                         self.logger.warning(f"Slack 쿠폰 선택 패널 전송 오류: {coupon_panel_err}")
 
@@ -2369,7 +2552,7 @@ JSON 외의 다른 텍스트는 절대로 포함하지 마."""
                 socket_client.socket_mode_request_listeners.append(handle_request)
                 socket_client.connect()
                 if self._startup_status_summary_complete and self._all_startup_status_summaries_ready():
-                    _post_quick_action_panel()
+                    self.schedule_quick_panel_relocation(delay=1.0)
                 self.logger.info("DVA 메인 프로그램 내장 Slack 리스너 가동 완료!")
             except Exception as e:
                 self.logger.error(f"DVA 내장 Slack 리스너 시작 예외: {str(e)}")

@@ -198,6 +198,7 @@ class DoctorBillApp:
             'notify_kakao': lambda msg, cat="notify_startup_summary", **kwargs: self.task_manager.notifier.send_notification(msg, category=cat, **kwargs),
             'notify_slack': lambda msg, cat="notify_quiz", **kwargs: self.task_manager.notifier.send_notification(msg, category=cat, **kwargs),
             'notify_success': lambda msg, cat="notify_survey", **kwargs: self.task_manager.notifier.send_notification(msg, category=cat, **kwargs),
+            'schedule_quick_panel': lambda delay=3.0: self.task_manager.schedule_quick_panel_relocation(delay=delay),
             'gui_instance': self
         }
 
@@ -1107,11 +1108,6 @@ class DoctorBillApp:
                         elif task_name == 'points':
                             self.task_manager.execute_module_by_config('points', gui_callbacks)
                         elif task_name in ['exit', 'close', 'quit']:
-                            try:
-                                if os.path.exists(dispatch_file):
-                                    os.remove(dispatch_file)
-                            except Exception:
-                                pass
                             self.on_closing()
                         elif task_name == 'baemin':
                             p_kw = data.get('product_keyword', '배달의민족')

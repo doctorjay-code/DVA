@@ -137,6 +137,13 @@ class PointsCheckModule(BaseModule):
             if hasattr(self, 'gui_callbacks') and 'notify_kakao' in self.gui_callbacks:
                 self.gui_callbacks['notify_kakao'](summary_msg, cat="notify_startup_summary")
             
+            # 상태 요약 전송 직후 Slack 리모컨 패널 최하단 재배치 트리거 (3초 디바운스)
+            if hasattr(self, 'gui_callbacks') and 'schedule_quick_panel' in self.gui_callbacks:
+                try:
+                    self.gui_callbacks['schedule_quick_panel'](3.0)
+                except Exception as sq_err:
+                    self.log_warning(f"Slack 리모컨 패널 재배치 예약 오류: {sq_err}")
+            
             # 7단계: 로그 기록
             self.log_success(summary_msg)
             
