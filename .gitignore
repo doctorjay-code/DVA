@@ -229,6 +229,9 @@ data/*.json
 !data/version.json
 data/settings.json
 data/survey_answer_prompt.lock
+*.db
+*.sqlite*
+README.md
 
 # 백업 파일들
 backup/
@@ -249,7 +252,6 @@ docs/
 
 # 마크다운 파일(README.md 제외)
 *.md
-!README.md
 
 # Git backup folder
 .git_old/

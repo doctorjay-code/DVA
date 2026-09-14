@@ -21,18 +21,24 @@ class SurveyProblemManager:
         Args:
             quiz_file: 퀴즈 정보를 저장할 JSON 파일 경로
         """
+        if not hasattr(self, 'problem_type'):
+            self.problem_type = "survey"
+
         if quiz_file is None:
             # 1. 환경변수 계정 이름 확인
             account_name = os.environ.get('ACCOUNT_NAME', 'default')
-            self.quiz_file = os.path.join("data", "survey_problem.json")
+            self.quiz_file = os.path.join("data", f"{self.problem_type}_problem.json")
         else:
             self.quiz_file = quiz_file
             
         self.quiz_answers = {}
-        self.load_quizzes()
+        self._last_remote_sync = 0.0
+        self._remote_sync_interval = 3.0  # 대기 루프 렉 방지용 최소 3초 간격
+        self.load_quizzes(force_remote=True)
     
-    def load_quizzes(self):
-        """퀴즈 정보를 파일에서 로드합니다."""
+    def load_quizzes(self, force_remote=False):
+        """퀴즈 정보를 파일에서 로드하고 Supabase와 동기화합니다."""
+        # 1. 로컬 파일에서 즉각 로드 (0초 오프라인 캐시 우선)
         try:
             if os.path.exists(self.quiz_file):
                 with open(self.quiz_file, 'r', encoding='utf-8') as f:
@@ -40,8 +46,41 @@ class SurveyProblemManager:
             else:
                 self.quiz_answers = {}
         except Exception as e:
-            print(f"퀴즈 로드 실패: {str(e)}")
+            print(f"로컬 퀴즈 로드 실패: {str(e)}")
             self.quiz_answers = {}
+
+        # 2. Supabase 클라우드 DB 동기화 (최소 3초 쿨타임 적용)
+        now = time.time()
+        if not force_remote and (now - getattr(self, '_last_remote_sync', 0.0) < getattr(self, '_remote_sync_interval', 3.0)):
+            return
+
+        try:
+            from .supabase_client import SupabaseClient
+            client = SupabaseClient.get_instance()
+            if client.is_configured():
+                remote_data = client.fetch_all_problems(self.problem_type)
+                self._last_remote_sync = now
+                if remote_data:
+                    # 원격에 없는 로컬 데이터 추출 (백그라운드 업로드용)
+                    missing_in_remote = {
+                        q: d for q, d in self.quiz_answers.items()
+                        if q not in remote_data
+                    }
+                    # 최신 원격 데이터로 로컬 딕셔너리 병합
+                    self.quiz_answers.update(remote_data)
+                    # 로컬 백업 JSON 파일 최신화 저장
+                    self.save_quizzes()
+                    # 누락된 로컬 데이터가 있었다면 원격에 자동 백그라운드 업로드
+                    if missing_in_remote:
+                        import threading
+                        threading.Thread(
+                            target=client.bulk_upsert_problems,
+                            args=(self.problem_type, missing_in_remote),
+                            daemon=True
+                        ).start()
+        except Exception as e:
+            # 네트워크 오류 시 로컬 캐시 그대로 안전하게 유지
+            pass
     
     def save_quizzes(self):
         """퀴즈 정보를 파일에 저장합니다."""
@@ -108,7 +147,24 @@ class SurveyProblemManager:
             "category": target_category,
             "answer_num": target_answer_num
         }
-        return self.save_quizzes()
+        res = self.save_quizzes()
+
+        # Supabase 백그라운드 실시간 업로드 (메인 흐름 차단 없음)
+        try:
+            from .supabase_client import SupabaseClient
+            client = SupabaseClient.get_instance()
+            if client.is_configured():
+                client.background_upsert(
+                    self.problem_type,
+                    normalized_question,
+                    answer,
+                    target_category,
+                    target_answer_num
+                )
+        except Exception:
+            pass
+
+        return res
     
     def update_quiz(self, question: str, answer: str):
         """
@@ -124,8 +180,29 @@ class SurveyProblemManager:
         if question not in self.quiz_answers:
             return False
         
-        self.quiz_answers[question] = answer
-        return self.save_quizzes()
+        existing = self.quiz_answers.get(question)
+        cat = ""
+        num = ""
+        if isinstance(existing, dict):
+            cat = existing.get("category", "")
+            num = existing.get("answer_num", "")
+            self.quiz_answers[question]["answer"] = answer
+        else:
+            self.quiz_answers[question] = {
+                "answer": answer,
+                "category": cat,
+                "answer_num": num
+            }
+        
+        res = self.save_quizzes()
+        try:
+            from .supabase_client import SupabaseClient
+            client = SupabaseClient.get_instance()
+            if client.is_configured():
+                client.background_upsert(self.problem_type, question, answer, cat, num)
+        except Exception:
+            pass
+        return res
     
     def delete_quiz(self, question: str):
         """
@@ -141,7 +218,15 @@ class SurveyProblemManager:
             return False
         
         del self.quiz_answers[question]
-        return self.save_quizzes()
+        res = self.save_quizzes()
+        try:
+            from .supabase_client import SupabaseClient
+            client = SupabaseClient.get_instance()
+            if client.is_configured():
+                client.background_delete(self.problem_type, question)
+        except Exception:
+            pass
+        return res
     
     def acquire_answer_prompt_lock(self, stale_after_seconds: int = 360):
         """Claim the one shared Slack-answer prompt across running accounts."""

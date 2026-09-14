@@ -19,15 +19,8 @@ class QuizProblemManager(SurveyProblemManager):
         Args:
             quiz_file: 퀴즈 정보를 저장할 JSON 파일 경로
         """
-        if quiz_file is None:
-            # 1. 환경변수 계정 이름 확인
-            account_name = os.environ.get('ACCOUNT_NAME', 'default')
-            self.quiz_file = os.path.join("data", "quiz_problem.json")
-        else:
-            self.quiz_file = quiz_file
-            
-        self.quiz_answers = {}
-        self.load_quizzes()
+        self.problem_type = "quiz"
+        super().__init__(quiz_file=quiz_file)
 
     def add_quiz(self, question: str, answer: str, category: str = "일반", answer_num: str = ""):
         """
